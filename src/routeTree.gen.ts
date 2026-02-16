@@ -11,7 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as BoardsRouteImport } from './routes/boards'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as InviteTokenRouteImport } from './routes/invite.$token'
+import { Route as BoardBoardIdRouteImport } from './routes/board.$boardId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -23,40 +26,86 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BoardsRoute = BoardsRouteImport.update({
+  id: '/boards',
+  path: '/boards',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InviteTokenRoute = InviteTokenRouteImport.update({
+  id: '/invite/$token',
+  path: '/invite/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BoardBoardIdRoute = BoardBoardIdRouteImport.update({
+  id: '/board/$boardId',
+  path: '/board/$boardId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/boards': typeof BoardsRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/board/$boardId': typeof BoardBoardIdRoute
+  '/invite/$token': typeof InviteTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/boards': typeof BoardsRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/board/$boardId': typeof BoardBoardIdRoute
+  '/invite/$token': typeof InviteTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/boards': typeof BoardsRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/board/$boardId': typeof BoardBoardIdRoute
+  '/invite/$token': typeof InviteTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/signup'
+  fullPaths:
+    | '/'
+    | '/boards'
+    | '/login'
+    | '/signup'
+    | '/board/$boardId'
+    | '/invite/$token'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/signup'
-  id: '__root__' | '/' | '/login' | '/signup'
+  to:
+    | '/'
+    | '/boards'
+    | '/login'
+    | '/signup'
+    | '/board/$boardId'
+    | '/invite/$token'
+  id:
+    | '__root__'
+    | '/'
+    | '/boards'
+    | '/login'
+    | '/signup'
+    | '/board/$boardId'
+    | '/invite/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BoardsRoute: typeof BoardsRoute
   LoginRoute: typeof LoginRoute
   SignupRoute: typeof SignupRoute
+  BoardBoardIdRoute: typeof BoardBoardIdRoute
+  InviteTokenRoute: typeof InviteTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -75,6 +124,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/boards': {
+      id: '/boards'
+      path: '/boards'
+      fullPath: '/boards'
+      preLoaderRoute: typeof BoardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -82,13 +138,30 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/invite/$token': {
+      id: '/invite/$token'
+      path: '/invite/$token'
+      fullPath: '/invite/$token'
+      preLoaderRoute: typeof InviteTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/board/$boardId': {
+      id: '/board/$boardId'
+      path: '/board/$boardId'
+      fullPath: '/board/$boardId'
+      preLoaderRoute: typeof BoardBoardIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BoardsRoute: BoardsRoute,
   LoginRoute: LoginRoute,
   SignupRoute: SignupRoute,
+  BoardBoardIdRoute: BoardBoardIdRoute,
+  InviteTokenRoute: InviteTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

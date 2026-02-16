@@ -19,7 +19,7 @@ function SignUpPage() {
 
   useEffect(() => {
     if (isSessionValid(getStoredSession())) {
-      void navigate({ to: '/' })
+      void navigate({ to: '/boards' })
     }
   }, [navigate])
 
@@ -44,7 +44,7 @@ function SignUpPage() {
       }
       if (result.session) {
         setStoredSession(result.session)
-        await navigate({ to: '/' })
+        await navigate({ to: '/boards' })
         return
       }
       setSuccess(result.message || 'Account created. You can now log in.')
@@ -113,3 +113,4 @@ function SignUpPage() {
     </main>
   )
 }
+

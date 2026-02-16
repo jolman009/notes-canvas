@@ -16,7 +16,7 @@ function LoginPage() {
 
   useEffect(() => {
     if (isSessionValid(getStoredSession())) {
-      void navigate({ to: '/' })
+      void navigate({ to: '/boards' })
     }
   }, [navigate])
 
@@ -37,7 +37,7 @@ function LoginPage() {
         return
       }
       setStoredSession(result.session)
-      await navigate({ to: '/' })
+      await navigate({ to: '/boards' })
     } finally {
       setIsSubmitting(false)
     }
@@ -86,3 +86,4 @@ function LoginPage() {
     </main>
   )
 }
+
