@@ -240,6 +240,9 @@ function App() {
         tag: '',
         link: '',
         imageDataUrl: '',
+        imageFit: 'cover',
+        imageNaturalWidth: 0,
+        imageNaturalHeight: 0,
         x,
         y,
         width: DEFAULT_NOTE_WIDTH,
@@ -310,8 +313,19 @@ function App() {
 
   const updateNote = (
     id: string,
-    field: keyof Pick<Note, 'title' | 'body' | 'tag' | 'color' | 'link' | 'imageDataUrl'>,
-    value: string
+    field: keyof Pick<
+      Note,
+      | 'title'
+      | 'body'
+      | 'tag'
+      | 'color'
+      | 'link'
+      | 'imageDataUrl'
+      | 'imageFit'
+      | 'imageNaturalWidth'
+      | 'imageNaturalHeight'
+    >,
+    value: string | number
   ) => {
     setNotes((current) =>
       current.map((note) => (note.id === id ? { ...note, [field]: value } : note))
@@ -325,8 +339,59 @@ function App() {
     if (!file.type.startsWith('image/')) {
       return
     }
-    const dataUrl = await readFileAsDataUrl(file)
-    updateNote(id, 'imageDataUrl', dataUrl)
+    const image = await readImageFile(file)
+    setNotes((current) =>
+      current.map((note) =>
+        note.id === id
+          ? {
+              ...note,
+              imageDataUrl: image.dataUrl,
+              imageNaturalWidth: image.width,
+              imageNaturalHeight: image.height,
+            }
+          : note
+      )
+    )
+  }
+
+  const fitNoteToImage = (id: string) => {
+    const board = boardRef.current
+    if (!board) {
+      return
+    }
+    const boardWidth = board.clientWidth
+    const boardHeight = board.clientHeight
+
+    setNotes((current) =>
+      current.map((note) => {
+        if (
+          note.id !== id ||
+          !note.imageDataUrl ||
+          note.imageNaturalWidth <= 0 ||
+          note.imageNaturalHeight <= 0
+        ) {
+          return note
+        }
+        const ratio = note.imageNaturalWidth / note.imageNaturalHeight
+        const targetWidth = clamp(
+          note.imageNaturalWidth,
+          MIN_NOTE_WIDTH,
+          Math.min(560, boardWidth)
+        )
+        const targetHeight = clamp(
+          targetWidth / ratio,
+          MIN_NOTE_HEIGHT,
+          Math.min(520, boardHeight)
+        )
+        return {
+          ...note,
+          width: targetWidth,
+          height: targetHeight,
+          x: clamp(note.x, 0, Math.max(0, boardWidth - targetWidth)),
+          y: clamp(note.y, 0, Math.max(0, boardHeight - targetHeight)),
+        }
+      })
+    )
   }
 
   return (
@@ -438,14 +503,28 @@ function App() {
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-800/70">
                   note
                 </span>
-                <button
-                  type="button"
-                  onClick={() => removeNote(note.id)}
-                  className="p-1 rounded text-slate-800/70 hover:bg-black/10 hover:text-slate-950"
-                  aria-label="Delete note"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  {NOTE_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => updateNote(note.id, 'color', color)}
+                      className={`w-3.5 h-3.5 rounded-full border ${
+                        note.color === color ? 'border-slate-900' : 'border-slate-700/40'
+                      }`}
+                      style={{ backgroundColor: color }}
+                      aria-label="Set note color"
+                    />
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => removeNote(note.id)}
+                    className="ml-1 p-1 rounded text-slate-800/70 hover:bg-black/10 hover:text-slate-950"
+                    aria-label="Delete note"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               <div className="h-[calc(100%-2.5rem)] px-3 py-2 flex flex-col gap-2">
@@ -487,7 +566,11 @@ function App() {
                     <img
                       src={note.imageDataUrl}
                       alt="Note attachment"
-                      className="w-full h-20 object-cover"
+                      className="w-full"
+                      style={{
+                        height: Math.max(72, Math.min(168, Math.floor(note.height * 0.38))),
+                        objectFit: note.imageFit,
+                      }}
                     />
                   </div>
                 ) : null}
@@ -498,7 +581,7 @@ function App() {
                     className="w-24 bg-black/5 rounded px-2 py-1 text-xs text-slate-900 placeholder:text-slate-700/70 focus:outline-none"
                     placeholder="tag"
                   />
-                  <label className="text-xs px-2 py-1 bg-black/10 rounded cursor-pointer">
+                  <label className="text-xs px-2 py-1 bg-black/20 text-slate-900 border border-black/20 rounded cursor-pointer font-medium">
                     Image
                     <input
                       type="file"
@@ -512,28 +595,49 @@ function App() {
                   {note.imageDataUrl ? (
                     <button
                       type="button"
-                      className="text-xs px-2 py-1 bg-black/10 rounded"
-                      onClick={() => updateNote(note.id, 'imageDataUrl', '')}
+                      className="text-xs px-2 py-1 bg-black/20 text-slate-900 border border-black/20 rounded font-medium"
+                      onClick={() => {
+                        setNotes((current) =>
+                          current.map((item) =>
+                            item.id === note.id
+                              ? {
+                                  ...item,
+                                  imageDataUrl: '',
+                                  imageNaturalWidth: 0,
+                                  imageNaturalHeight: 0,
+                                }
+                              : item
+                          )
+                        )
+                      }}
                     >
                       Remove image
                     </button>
                   ) : null}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {NOTE_COLORS.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() => updateNote(note.id, 'color', color)}
-                        className={`w-4 h-4 rounded-full border ${
-                          note.color === color
-                            ? 'border-slate-900'
-                            : 'border-slate-700/40'
-                        }`}
-                        style={{ backgroundColor: color }}
-                        aria-label="Set note color"
-                      />
-                    ))}
-                  </div>
+                  {note.imageDataUrl ? (
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 bg-black/20 text-slate-900 border border-black/20 rounded font-medium"
+                      onClick={() =>
+                        updateNote(
+                          note.id,
+                          'imageFit',
+                          note.imageFit === 'cover' ? 'contain' : 'cover'
+                        )
+                      }
+                    >
+                      {note.imageFit === 'cover' ? 'Contain' : 'Cover'}
+                    </button>
+                  ) : null}
+                  {note.imageDataUrl ? (
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 bg-black/20 text-slate-900 border border-black/20 rounded font-medium"
+                      onClick={() => fitNoteToImage(note.id)}
+                    >
+                      Fit note
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -556,6 +660,25 @@ function readFileAsDataUrl(file: File) {
     reader.onload = () => resolve(String(reader.result || ''))
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(file)
+  })
+}
+
+async function readImageFile(file: File) {
+  const dataUrl = await readFileAsDataUrl(file)
+  const size = await getImageSize(dataUrl)
+  return {
+    dataUrl,
+    width: size.width,
+    height: size.height,
+  }
+}
+
+function getImageSize(dataUrl: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+    image.onerror = () => reject(new Error('Failed to read image dimensions.'))
+    image.src = dataUrl
   })
 }
 

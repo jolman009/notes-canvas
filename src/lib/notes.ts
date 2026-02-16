@@ -11,6 +11,9 @@ export type Note = {
   tag: string
   link: string
   imageDataUrl: string
+  imageFit: 'cover' | 'contain'
+  imageNaturalWidth: number
+  imageNaturalHeight: number
   x: number
   y: number
   width: number
@@ -26,6 +29,9 @@ export const seedNotes: Note[] = [
     tag: 'planning',
     link: '',
     imageDataUrl: '',
+    imageFit: 'cover',
+    imageNaturalWidth: 0,
+    imageNaturalHeight: 0,
     x: 60,
     y: 60,
     width: DEFAULT_NOTE_WIDTH,
@@ -39,6 +45,9 @@ export const seedNotes: Note[] = [
     tag: 'daily',
     link: '',
     imageDataUrl: '',
+    imageFit: 'cover',
+    imageNaturalWidth: 0,
+    imageNaturalHeight: 0,
     x: 370,
     y: 170,
     width: DEFAULT_NOTE_WIDTH,
@@ -67,6 +76,15 @@ export function sanitizeNotes(input: unknown): Note[] {
         tag: typeof note.tag === 'string' ? note.tag : '',
         link: typeof note.link === 'string' ? note.link : '',
         imageDataUrl: typeof note.imageDataUrl === 'string' ? note.imageDataUrl : '',
+        imageFit: note.imageFit === 'contain' ? 'contain' : 'cover',
+        imageNaturalWidth:
+          typeof note.imageNaturalWidth === 'number'
+            ? Math.max(0, note.imageNaturalWidth)
+            : 0,
+        imageNaturalHeight:
+          typeof note.imageNaturalHeight === 'number'
+            ? Math.max(0, note.imageNaturalHeight)
+            : 0,
         x: typeof note.x === 'number' ? Math.max(0, note.x) : 0,
         y: typeof note.y === 'number' ? Math.max(0, note.y) : 0,
         width:
