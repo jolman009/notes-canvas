@@ -9,6 +9,8 @@ export type Note = {
   title: string
   body: string
   tag: string
+  link: string
+  imageDataUrl: string
   x: number
   y: number
   width: number
@@ -22,6 +24,8 @@ export const seedNotes: Note[] = [
     title: 'Project ideas',
     body: '- Add search\n- Add tags\n- Add markdown support',
     tag: 'planning',
+    link: '',
+    imageDataUrl: '',
     x: 60,
     y: 60,
     width: DEFAULT_NOTE_WIDTH,
@@ -33,6 +37,8 @@ export const seedNotes: Note[] = [
     title: 'Today',
     body: 'Drag and resize notes on this board.',
     tag: 'daily',
+    link: '',
+    imageDataUrl: '',
     x: 370,
     y: 170,
     width: DEFAULT_NOTE_WIDTH,
@@ -59,6 +65,8 @@ export function sanitizeNotes(input: unknown): Note[] {
         title: typeof note.title === 'string' ? note.title : '',
         body: typeof note.body === 'string' ? note.body : '',
         tag: typeof note.tag === 'string' ? note.tag : '',
+        link: typeof note.link === 'string' ? note.link : '',
+        imageDataUrl: typeof note.imageDataUrl === 'string' ? note.imageDataUrl : '',
         x: typeof note.x === 'number' ? Math.max(0, note.x) : 0,
         y: typeof note.y === 'number' ? Math.max(0, note.y) : 0,
         width:

@@ -81,7 +81,7 @@ function App() {
       notes.filter((note) => {
         const textMatches =
           query.trim().length === 0 ||
-          `${note.title}\n${note.body}\n${note.tag}`
+          `${note.title}\n${note.body}\n${note.tag}\n${note.link}`
             .toLowerCase()
             .includes(query.toLowerCase())
         const colorMatches = colorFilter === 'all' || note.color === colorFilter
@@ -238,6 +238,8 @@ function App() {
         title: 'New note',
         body: '',
         tag: '',
+        link: '',
+        imageDataUrl: '',
         x,
         y,
         width: DEFAULT_NOTE_WIDTH,
@@ -308,12 +310,23 @@ function App() {
 
   const updateNote = (
     id: string,
-    field: keyof Pick<Note, 'title' | 'body' | 'tag' | 'color'>,
+    field: keyof Pick<Note, 'title' | 'body' | 'tag' | 'color' | 'link' | 'imageDataUrl'>,
     value: string
   ) => {
     setNotes((current) =>
       current.map((note) => (note.id === id ? { ...note, [field]: value } : note))
     )
+  }
+
+  const updateNoteImage = async (id: string, file: File | null) => {
+    if (!file) {
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      return
+    }
+    const dataUrl = await readFileAsDataUrl(file)
+    updateNote(id, 'imageDataUrl', dataUrl)
   }
 
   return (
@@ -452,6 +465,32 @@ function App() {
                   className="w-full flex-1 resize-none bg-transparent border-none text-sm leading-relaxed text-slate-900 placeholder:text-slate-700/60 focus:outline-none"
                   placeholder="Write your note..."
                 />
+                <input
+                  value={note.link}
+                  onChange={(event) => updateNote(note.id, 'link', event.target.value)}
+                  className="w-full bg-black/5 rounded px-2 py-1 text-xs text-slate-900 placeholder:text-slate-700/70 focus:outline-none"
+                  placeholder="https://example.com"
+                />
+                {note.link.trim().length > 0 ? (
+                  <a
+                    href={toSafeLink(note.link)}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-xs text-blue-800 underline truncate"
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    Open link
+                  </a>
+                ) : null}
+                {note.imageDataUrl ? (
+                  <div className="w-full rounded overflow-hidden border border-black/10 bg-black/5">
+                    <img
+                      src={note.imageDataUrl}
+                      alt="Note attachment"
+                      className="w-full h-20 object-cover"
+                    />
+                  </div>
+                ) : null}
                 <div className="flex items-center justify-between gap-2">
                   <input
                     value={note.tag}
@@ -459,7 +498,27 @@ function App() {
                     className="w-24 bg-black/5 rounded px-2 py-1 text-xs text-slate-900 placeholder:text-slate-700/70 focus:outline-none"
                     placeholder="tag"
                   />
-                  <div className="flex items-center gap-1">
+                  <label className="text-xs px-2 py-1 bg-black/10 rounded cursor-pointer">
+                    Image
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/gif,image/png,image/webp"
+                      className="hidden"
+                      onChange={(event) =>
+                        void updateNoteImage(note.id, event.target.files?.[0] ?? null)
+                      }
+                    />
+                  </label>
+                  {note.imageDataUrl ? (
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 bg-black/10 rounded"
+                      onClick={() => updateNote(note.id, 'imageDataUrl', '')}
+                    >
+                      Remove image
+                    </button>
+                  ) : null}
+                  <div className="flex items-center gap-1 shrink-0">
                     {NOTE_COLORS.map((color) => (
                       <button
                         key={color}
@@ -489,4 +548,24 @@ function App() {
       </section>
     </main>
   )
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+function toSafeLink(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return '#'
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed
+  }
+  return `https://${trimmed}`
 }
