@@ -4,7 +4,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import BoardCanvas from '@/components/BoardCanvas'
 import { clearStoredSession, getStoredSession, isSessionValid, type AuthSession } from '@/lib/auth-session'
+import { isSelfUpdate, shouldApplyIncomingState } from '@/lib/collab'
 import { sanitizeNotes, seedNotes, type Note } from '@/lib/notes'
+
+type BoardAccess = {
+  role: 'owner' | 'editor' | 'viewer'
+  canEdit: boolean
+  isOwner: boolean
+}
+
+type BoardInviteSummary = {
+  id: string
+  token: string
+  role: 'editor' | 'viewer'
+  expiresAt: string
+  createdAt: string
+}
 
 const loadBoardNotesServer = createServerFn({ method: 'POST' })
   .inputValidator((input: { userId: string; accessToken: string; boardId: string }) => ({
@@ -141,6 +156,76 @@ const createInviteServer = createServerFn({ method: 'POST' })
     }
   })
 
+const loadBoardAccessServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { userId: string; accessToken: string; boardId: string }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return {
+        ok: false as const,
+        access: { role: 'viewer', canEdit: false, isOwner: false } as BoardAccess,
+      }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      const access = await store.getBoardAccess(data.accessToken, data.boardId, verifiedUser.id)
+      return { ok: true as const, access }
+    } catch {
+      return {
+        ok: false as const,
+        access: { role: 'viewer', canEdit: false, isOwner: false } as BoardAccess,
+      }
+    }
+  })
+
+const listInvitesServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { userId: string; accessToken: string; boardId: string }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const, invites: [] as BoardInviteSummary[] }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      const invites = await store.listInvites(data.accessToken, data.boardId)
+      return { ok: true as const, invites }
+    } catch {
+      return { ok: false as const, invites: [] as BoardInviteSummary[] }
+    }
+  })
+
+const revokeInviteServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { userId: string; accessToken: string; boardId: string; inviteId: string }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+    inviteId: String(input.inviteId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      await store.revokeInvite(data.accessToken, data.boardId, data.inviteId)
+      return { ok: true as const }
+    } catch {
+      return { ok: false as const }
+    }
+  })
+
 export const Route = createFileRoute('/board/$boardId')({
   loader: () => seedNotes,
   component: BoardRoute,
@@ -152,6 +237,12 @@ function BoardRoute() {
   const initialNotes = Route.useLoaderData()
   const [session, setSession] = useState<AuthSession | null>(null)
   const [notes, setNotes] = useState<Note[]>(initialNotes)
+  const [boardAccess, setBoardAccess] = useState<BoardAccess>({
+    role: 'viewer',
+    canEdit: false,
+    isOwner: false,
+  })
+  const [activeInvites, setActiveInvites] = useState<BoardInviteSummary[]>([])
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor')
@@ -159,6 +250,10 @@ function BoardRoute() {
   const [inviteMessage, setInviteMessage] = useState('')
   const [collabMessage, setCollabMessage] = useState('')
   const [saveErrorMessage, setSaveErrorMessage] = useState('')
+  const [presenceUsers, setPresenceUsers] = useState<Array<{ id: string; label: string }>>([])
+  const [syncFailureCount, setSyncFailureCount] = useState(0)
+  const [conflictCount, setConflictCount] = useState(0)
+  const [pendingConflictNotes, setPendingConflictNotes] = useState<Note[] | null>(null)
   const [isCreatingInvite, setIsCreatingInvite] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [boardRevision, setBoardRevision] = useState(0)
@@ -172,6 +267,7 @@ function BoardRoute() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeClientRef = useRef<SupabaseClient | null>(null)
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null)
+  const pendingSaveNotesRef = useRef<Note[] | null>(null)
 
   const cacheKey = useMemo(
     () => (session ? `canvas-board:${session.user.id}:${boardId}` : ''),
@@ -214,13 +310,13 @@ function BoardRoute() {
           boardId,
         },
       })
-      if (!latest.ok || latest.revision <= revisionRef.current) {
+      if (!latest.ok || !shouldApplyIncomingState(revisionRef.current, latest.revision)) {
         return
       }
       revisionRef.current = latest.revision
       setBoardRevision(latest.revision)
       lastSyncedNotesRef.current = latest.notes
-      if (showCollaboratorNotice && latest.updatedBy && latest.updatedBy !== session.user.id) {
+      if (showCollaboratorNotice && !isSelfUpdate(latest.updatedBy, session.user.id)) {
         setCollabMessage('Board updated by a collaborator. Latest changes were loaded.')
       }
       suppressNextSaveRef.current = true
@@ -261,6 +357,28 @@ function BoardRoute() {
         setBoardRevision(result.revision)
         revisionRef.current = result.revision
         lastSyncedNotesRef.current = result.notes
+        const accessResult = await loadBoardAccessServer({
+          data: {
+            userId: session.user.id,
+            accessToken: session.accessToken,
+            boardId,
+          },
+        })
+        if (accessResult.ok) {
+          setBoardAccess(accessResult.access)
+        }
+        if (accessResult.ok && accessResult.access.isOwner) {
+          const invitesResult = await listInvitesServer({
+            data: {
+              userId: session.user.id,
+              accessToken: session.accessToken,
+              boardId,
+            },
+          })
+          if (invitesResult.ok) {
+            setActiveInvites(invitesResult.invites)
+          }
+        }
       } else {
         setLoadError('You do not have access to this board.')
         await navigate({ to: '/boards' })
@@ -288,9 +406,18 @@ function BoardRoute() {
       clearTimeout(saveTimerRef.current)
     }
     setSaveErrorMessage('')
+    if (!boardAccess.canEdit) {
+      suppressNextSaveRef.current = true
+      setNotes(lastSyncedNotesRef.current)
+      setSaveErrorMessage('You have viewer access. Changes are read-only.')
+      setSyncState('error')
+      setSyncFailureCount((count) => count + 1)
+      return
+    }
     setSyncState('saving')
     saveTimerRef.current = setTimeout(() => {
       void (async () => {
+        pendingSaveNotesRef.current = notes
         const result = await saveBoardNotesServer({
           data: {
             userId: session.user.id,
@@ -308,11 +435,14 @@ function BoardRoute() {
           return
         }
         if (result.code === 'conflict') {
+          setConflictCount((count) => count + 1)
+          setPendingConflictNotes(pendingSaveNotesRef.current)
           setCollabMessage(result.message)
           await reloadLatestSnapshot(false)
           return
         }
         setSaveErrorMessage(result.message || 'Save failed. Your local draft was rolled back.')
+        setSyncFailureCount((count) => count + 1)
         suppressNextSaveRef.current = true
         setNotes(lastSyncedNotesRef.current)
         setSyncState('error')
@@ -323,7 +453,7 @@ function BoardRoute() {
         clearTimeout(saveTimerRef.current)
       }
     }
-  }, [session, boardId, notes, reloadLatestSnapshot])
+  }, [session, boardId, notes, reloadLatestSnapshot, boardAccess.canEdit])
 
   useEffect(() => {
     if (!session || !hasInitializedRef.current) {
@@ -387,12 +517,31 @@ function BoardRoute() {
               void reloadLatestSnapshot(true)
             }
           )
+          .on('presence', { event: 'sync' }, () => {
+            const state = channel.presenceState<{
+              id: string
+              label: string
+            }>()
+            const users = Object.values(state)
+              .flat()
+              .map((entry) => ({
+                id: entry.id,
+                label: entry.label,
+              }))
+              .filter((entry) => entry.id)
+            const deduped = Array.from(new Map(users.map((entry) => [entry.id, entry])).values())
+            setPresenceUsers(deduped)
+          })
           .subscribe((status) => {
             if (cancelled) {
               return
             }
             if (status === 'SUBSCRIBED') {
               setRealtimeStatus('connected')
+              void channel.track({
+                id: session.user.id,
+                label: session.user.name || session.user.email,
+              })
               return
             }
             if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
@@ -415,6 +564,7 @@ function BoardRoute() {
       const channel = realtimeChannelRef.current
       realtimeChannelRef.current = null
       realtimeClientRef.current = null
+      setPresenceUsers([])
       if (client && channel) {
         void client.removeChannel(channel)
       }
@@ -456,6 +606,18 @@ function BoardRoute() {
       const url = `${baseUrl}/invite/${result.inviteToken}`
       setInviteLink(url)
       setInviteMessage('Invite created. Link copied to clipboard.')
+      if (boardAccess.isOwner) {
+        const invitesResult = await listInvitesServer({
+          data: {
+            userId: session.user.id,
+            accessToken: session.accessToken,
+            boardId,
+          },
+        })
+        if (invitesResult.ok) {
+          setActiveInvites(invitesResult.invites)
+        }
+      }
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(url).catch(() => {
           setInviteMessage('Invite created. Copy the link manually below.')
@@ -474,6 +636,57 @@ function BoardRoute() {
     } finally {
       setIsCreatingInvite(false)
     }
+  }
+
+  const retryKeepMine = async () => {
+    if (!session || !pendingConflictNotes || !boardAccess.canEdit) {
+      return
+    }
+    setCollabMessage('Re-applying your draft...')
+    setSyncState('saving')
+    const result = await saveBoardNotesServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+        expectedRevision: revisionRef.current,
+        notes: pendingConflictNotes,
+      },
+    })
+    if (result.ok) {
+      suppressNextSaveRef.current = true
+      setNotes(pendingConflictNotes)
+      lastSyncedNotesRef.current = pendingConflictNotes
+      setBoardRevision(result.revision)
+      revisionRef.current = result.revision
+      setPendingConflictNotes(null)
+      setCollabMessage('Your draft was restored and saved.')
+      setSyncState('saved')
+      return
+    }
+    setSyncFailureCount((count) => count + 1)
+    setSaveErrorMessage('Could not re-apply your draft. Latest board remains loaded.')
+    setSyncState('error')
+  }
+
+  const revokeInvite = async (inviteId: string) => {
+    if (!session || !boardAccess.isOwner) {
+      return
+    }
+    const result = await revokeInviteServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+        inviteId,
+      },
+    })
+    if (!result.ok) {
+      setInviteMessage('Could not revoke invite.')
+      return
+    }
+    setActiveInvites((current) => current.filter((invite) => invite.id !== inviteId))
+    setInviteMessage('Invite revoked.')
   }
 
   if (isCheckingAuth) {
@@ -526,6 +739,18 @@ function BoardRoute() {
               {isCreatingInvite ? 'Creating...' : 'Create invite'}
             </button>
             <span className="text-xs text-slate-400">Rev {boardRevision}</span>
+            <span className="text-xs text-slate-400">
+              Role: <span className="text-slate-200">{boardAccess.role}</span>
+            </span>
+            <span className="text-xs text-slate-400">
+              Online: <span className="text-slate-200">{presenceUsers.length}</span>
+            </span>
+            <span className="text-xs text-slate-400">
+              Conflicts: <span className="text-slate-200">{conflictCount}</span>
+            </span>
+            <span className="text-xs text-slate-400">
+              Sync fails: <span className="text-slate-200">{syncFailureCount}</span>
+            </span>
             <span
               className={`text-xs ${
                 realtimeStatus === 'connected'
@@ -564,6 +789,37 @@ function BoardRoute() {
           Invite link: <span className="text-amber-300">{inviteLink}</span>
         </div>
       ) : null}
+      {boardAccess.isOwner && activeInvites.length > 0 ? (
+        <div className="px-6 pb-6">
+          <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3">
+            <p className="text-sm font-medium text-slate-200 mb-2">Active Invites</p>
+            <div className="flex flex-col gap-2">
+              {activeInvites.map((invite) => (
+                <div
+                  key={invite.id}
+                  className="flex items-center justify-between gap-3 rounded border border-slate-700 px-3 py-2 text-xs text-slate-300"
+                >
+                  <span className="truncate">
+                    {invite.role} | expires {new Date(invite.expiresAt).toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void revokeInvite(invite.id)}
+                    className="rounded border border-rose-600/70 px-2 py-1 text-rose-300 hover:bg-rose-950/40"
+                  >
+                    Revoke
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {presenceUsers.length > 0 ? (
+        <div className="px-6 pb-6 text-xs text-slate-400">
+          Active: {presenceUsers.map((user) => user.label).join(', ')}
+        </div>
+      ) : null}
       {inviteMessage ? (
         <div className="fixed right-4 bottom-4 z-50 max-w-md rounded-lg border border-slate-600 bg-slate-900/95 px-4 py-3 text-sm text-slate-100 shadow-2xl">
           {inviteMessage}
@@ -571,7 +827,16 @@ function BoardRoute() {
       ) : null}
       {collabMessage ? (
         <div className="fixed left-4 bottom-4 z-50 max-w-md rounded-lg border border-sky-600/60 bg-slate-900/95 px-4 py-3 text-sm text-sky-200 shadow-2xl">
-          {collabMessage}
+          <p>{collabMessage}</p>
+          {pendingConflictNotes && boardAccess.canEdit ? (
+            <button
+              type="button"
+              onClick={() => void retryKeepMine()}
+              className="mt-2 rounded border border-sky-500/70 px-3 py-1 text-xs text-sky-200 hover:bg-sky-950/30"
+            >
+              Keep mine
+            </button>
+          ) : null}
         </div>
       ) : null}
       {saveErrorMessage ? (

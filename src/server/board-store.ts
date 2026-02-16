@@ -21,6 +21,20 @@ export type InviteAcceptResult = {
   status: 'joined' | 'already_member'
 }
 
+export type BoardAccess = {
+  role: 'owner' | 'editor' | 'viewer'
+  canEdit: boolean
+  isOwner: boolean
+}
+
+export type BoardInviteSummary = {
+  id: string
+  token: string
+  role: 'editor' | 'viewer'
+  expiresAt: string
+  createdAt: string
+}
+
 export type BoardSnapshot = {
   notes: Note[]
   revision: number
@@ -55,6 +69,28 @@ export async function listBoards(accessToken: string, userId: string) {
       createdAt: row.boards!.created_at,
       updatedAt: row.boards!.updated_at,
     })) as BoardSummary[]
+}
+
+export async function getBoardAccess(
+  accessToken: string,
+  boardId: string,
+  userId: string
+): Promise<BoardAccess> {
+  const rows = await restFetch<Array<{ role: string }>>(
+    `/rest/v1/board_members?board_id=eq.${encodeURIComponent(
+      boardId
+    )}&user_id=eq.${encodeURIComponent(userId)}&select=role&limit=1`,
+    {
+      method: 'GET',
+      accessToken,
+    }
+  )
+  const role = normalizeRole(rows[0]?.role || 'viewer')
+  return {
+    role,
+    canEdit: role === 'owner' || role === 'editor',
+    isOwner: role === 'owner',
+  }
 }
 
 export async function createBoard(accessToken: string, ownerUserId: string, title: string) {
@@ -136,9 +172,11 @@ export async function saveBoardNotes(
   )
 
   if (!updated[0]) {
+    console.info('[board.save.conflict]', { boardId, userId, expectedRevision: safeRevision })
     throw new Error('REVISION_CONFLICT')
   }
 
+  console.info('[board.save.success]', { boardId, userId, revision: nextRevision })
   return {
     revision: nextRevision,
     updatedBy: userId,
@@ -192,9 +230,50 @@ export async function createInvite(
   })
   const inviteToken = rows[0]?.token
   if (!inviteToken) {
+    console.warn('[board.invite.create.failed]', { boardId, createdBy, role })
     throw new Error('Invite creation failed.')
   }
+  console.info('[board.invite.create.success]', { boardId, createdBy, role })
   return inviteToken
+}
+
+export async function listInvites(accessToken: string, boardId: string): Promise<BoardInviteSummary[]> {
+  const rows = await restFetch<
+    Array<{
+      id: string
+      token: string
+      role: string
+      expires_at: string
+      created_at: string
+    }>
+  >(
+    `/rest/v1/board_invites?board_id=eq.${encodeURIComponent(
+      boardId
+    )}&select=id,token,role,expires_at,created_at&order=created_at.desc`,
+    {
+      method: 'GET',
+      accessToken,
+    }
+  )
+  return rows.map((row) => ({
+    id: row.id,
+    token: row.token,
+    role: row.role === 'viewer' ? 'viewer' : 'editor',
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+  }))
+}
+
+export async function revokeInvite(accessToken: string, boardId: string, inviteId: string) {
+  await restFetch<Array<{ id: string }>>(
+    `/rest/v1/board_invites?id=eq.${encodeURIComponent(inviteId)}&board_id=eq.${encodeURIComponent(
+      boardId
+    )}&select=id`,
+    {
+      method: 'DELETE',
+      accessToken,
+    }
+  )
 }
 
 export async function acceptInvite(
@@ -211,9 +290,11 @@ export async function acceptInvite(
 
   const invite = rows[0]
   if (!invite) {
+    console.warn('[board.invite.accept.invalid]', { userId, token })
     throw new Error('INVITE_INVALID')
   }
   if (new Date(invite.expires_at).getTime() <= Date.now()) {
+    console.warn('[board.invite.accept.expired]', { userId, boardId: invite.board_id })
     throw new Error('INVITE_EXPIRED')
   }
 
@@ -227,6 +308,7 @@ export async function acceptInvite(
     }
   )
   if (existingMembership[0]?.board_id) {
+    console.info('[board.invite.accept.already_member]', { userId, boardId: invite.board_id })
     return {
       boardId: invite.board_id,
       status: 'already_member',
