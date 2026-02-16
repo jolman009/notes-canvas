@@ -26,6 +26,10 @@ Expected:
 - `test`: all tests pass.
 - `build`: completes successfully.
 
+Latest local run (agent):
+- `npm run test`: pass (`2 files`, `6 tests`)
+- `npm run build`: pass
+
 ## Manual Test Script
 
 ### 1) Realtime update propagation
