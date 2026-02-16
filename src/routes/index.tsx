@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { Plus, Search, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -13,6 +13,7 @@ import {
   seedNotes,
   type Note,
 } from '@/lib/notes'
+import { clearStoredSession, getStoredSession, isSessionValid } from '@/lib/auth-session'
 
 const loadNotesServer = createServerFn({ method: 'GET' }).handler(async () => {
   try {
@@ -43,9 +44,11 @@ export const Route = createFileRoute('/')({
 })
 
 function App() {
+  const navigate = useNavigate()
   const initialNotes = Route.useLoaderData()
   const [notes, setNotes] = useState<Note[]>(initialNotes)
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const [query, setQuery] = useState('')
   const [colorFilter, setColorFilter] = useState('all')
   const [tagFilter, setTagFilter] = useState('all')
@@ -90,6 +93,16 @@ function App() {
       }),
     [notes, query, colorFilter, tagFilter]
   )
+
+  useEffect(() => {
+    const session = getStoredSession()
+    if (!isSessionValid(session)) {
+      clearStoredSession()
+      void navigate({ to: '/login' })
+      return
+    }
+    setIsCheckingAuth(false)
+  }, [navigate])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -395,6 +408,11 @@ function App() {
   }
 
   return (
+    isCheckingAuth ? (
+      <main className="h-[calc(100vh-4rem)] bg-slate-950 text-slate-100 flex items-center justify-center">
+        <p className="text-sm text-slate-400">Checking session...</p>
+      </main>
+    ) : (
     <main className="h-[calc(100vh-4rem)] bg-slate-950 text-slate-100">
       <section className="h-full p-4 md:p-6 flex flex-col gap-4">
         <div className="bg-slate-900/80 border border-slate-700 rounded-xl p-4 flex flex-col gap-3">
@@ -430,6 +448,16 @@ function App() {
               >
                 <Plus className="w-4 h-4" />
                 Add note
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearStoredSession()
+                  void navigate({ to: '/login' })
+                }}
+                className="inline-flex items-center px-4 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
+              >
+                Log out
               </button>
             </div>
           </div>
@@ -651,6 +679,7 @@ function App() {
         </div>
       </section>
     </main>
+    )
   )
 }
 
