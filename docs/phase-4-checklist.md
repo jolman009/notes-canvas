@@ -1,0 +1,66 @@
+# Phase 4 Checklist: Production Readiness and Collaboration Governance
+
+## Scope
+Phase 4 covers:
+- Collaboration governance and role management completion
+- Production hardening and operational readiness
+- End-to-end rollout and release controls
+
+## TODO
+- [ ] Finalize board governance flows:
+  - [ ] Add ownership transfer flow (explicit confirmation + safety checks)
+  - [ ] Add owner UI for member role changes (`editor` <-> `viewer`)
+  - [ ] Add owner flow to remove members from a board
+  - [ ] Add self-service "Leave board" flow for non-owners
+- [ ] Harden invite lifecycle:
+  - [ ] Add default invite expiration policy (for example: 7 days)
+  - [ ] Add reusable vs one-time invite option (owner-controlled)
+  - [ ] Add invite audit fields (`accepted_by`, `accepted_at`) if needed
+  - [ ] Add cleanup path for expired/revoked invites
+- [ ] Improve board management UX:
+  - [ ] Rename board from board header/settings
+  - [ ] Add archive/delete board flow with confirmation guardrails
+  - [ ] Add clear empty/loading/error states for board list and board page
+  - [ ] Add member list panel with role badges and ownership indicator
+- [ ] Improve realtime UX polish:
+  - [ ] Add clearer sync status states (`Live`, `Reconnecting`, `Offline`)
+  - [ ] Show last successful sync timestamp in board UI
+  - [ ] Add clearer conflict resolution affordances and retry messaging
+  - [ ] Add presence timeout cleanup for stale users
+- [ ] Add performance and reliability safeguards:
+  - [ ] Tune save throttling/debouncing under fast edit bursts
+  - [ ] Verify reconnect behavior under flaky network conditions
+  - [ ] Add load test scenario for multi-user concurrent editing
+  - [ ] Verify no duplicate subscriptions on route transitions
+- [ ] Complete security and ops readiness:
+  - [ ] Add rate limiting for invite create/accept endpoints
+  - [ ] Verify service-role usage is server-only and never client-exposed
+  - [ ] Add monitoring/alerts for invite failures and conflict spikes
+  - [ ] Validate backup and restore path for `boards`, `board_members`, `board_state`
+- [ ] Add automated release gates:
+  - [ ] Add end-to-end invite/join/edit test flow
+  - [ ] Add role-matrix E2E checks (`owner`, `editor`, `viewer`, outsider)
+  - [ ] Add revoked/expired invite regression tests
+  - [ ] Require passing CI checks before production deploy
+- [ ] Define rollout and rollback playbook:
+  - [ ] Add staged rollout plan (dev -> internal -> production)
+  - [ ] Define rollback triggers and rollback procedure
+  - [ ] Add post-release smoke checklist
+  - [ ] Record on-call owner for release window
+- [ ] Add implementation notes after Phase 4 validation.
+
+## Exit Criteria
+- [ ] Ownership/member governance flows are complete and validated.
+- [ ] Invite lifecycle policies are enforced and observable in production.
+- [ ] Realtime sync UX clearly communicates status and recovery paths.
+- [ ] Security/ops checks and backup/restore verification are signed off.
+- [ ] E2E test coverage gates release for invite, access, and collaboration paths.
+- [ ] Rollout and rollback runbooks are documented and tested.
+
+## Phase 4 Artifacts (Planned)
+- `supabase/phase4_*.sql`
+- `src/routes/board.$boardId.tsx`
+- `src/routes/boards.tsx`
+- `src/server/board-store.ts`
+- `src/server/invites.ts`
+- `docs/phase-4-validation-checklist.md`
