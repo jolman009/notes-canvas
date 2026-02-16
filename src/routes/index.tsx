@@ -1,0 +1,492 @@
+import { createFileRoute } from '@tanstack/react-router'
+import { createServerFn } from '@tanstack/react-start'
+import { Plus, Search, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  NOTE_COLORS,
+  DEFAULT_NOTE_HEIGHT,
+  DEFAULT_NOTE_WIDTH,
+  MIN_NOTE_HEIGHT,
+  MIN_NOTE_WIDTH,
+  clamp,
+  sanitizeNotes,
+  seedNotes,
+  type Note,
+} from '@/lib/notes'
+
+const loadNotesServer = createServerFn({ method: 'GET' }).handler(async () => {
+  try {
+    const store = await import('@/server/notes-store')
+    return await store.loadNotesFromStore()
+  } catch {
+    return seedNotes
+  }
+})
+
+const saveNotesServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { notes: Note[] }) => ({
+    notes: sanitizeNotes(input.notes),
+  }))
+  .handler(async ({ data }) => {
+    try {
+      const store = await import('@/server/notes-store')
+      await store.saveNotesToStore(data.notes)
+      return { ok: true as const, updatedAt: Date.now() }
+    } catch {
+      return { ok: false as const, updatedAt: Date.now() }
+    }
+  })
+
+export const Route = createFileRoute('/')({
+  loader: () => loadNotesServer(),
+  component: App,
+})
+
+function App() {
+  const initialNotes = Route.useLoaderData()
+  const [notes, setNotes] = useState<Note[]>(initialNotes)
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [colorFilter, setColorFilter] = useState('all')
+  const [tagFilter, setTagFilter] = useState('all')
+  const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const boardRef = useRef<HTMLDivElement | null>(null)
+  const hasInitializedRef = useRef(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dragStateRef = useRef<{
+    id: string
+    offsetX: number
+    offsetY: number
+  } | null>(null)
+  const resizeStateRef = useRef<{
+    id: string
+    startX: number
+    startY: number
+    startWidth: number
+    startHeight: number
+    noteX: number
+    noteY: number
+  } | null>(null)
+
+  const tags = useMemo(
+    () =>
+      Array.from(
+        new Set(notes.map((note) => note.tag.trim()).filter((tag) => tag.length > 0))
+      ).sort((a, b) => a.localeCompare(b)),
+    [notes]
+  )
+
+  const filteredNotes = useMemo(
+    () =>
+      notes.filter((note) => {
+        const textMatches =
+          query.trim().length === 0 ||
+          `${note.title}\n${note.body}\n${note.tag}`
+            .toLowerCase()
+            .includes(query.toLowerCase())
+        const colorMatches = colorFilter === 'all' || note.color === colorFilter
+        const tagMatches = tagFilter === 'all' || note.tag.trim() === tagFilter
+        return textMatches && colorMatches && tagMatches
+      }),
+    [notes, query, colorFilter, tagFilter]
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const cached = window.localStorage.getItem('canvas-notes')
+    if (!cached) {
+      hasInitializedRef.current = true
+      return
+    }
+    try {
+      const parsed = JSON.parse(cached) as unknown
+      const sanitized = sanitizeNotes(parsed)
+      if (sanitized.length > 0) {
+        setNotes(sanitized)
+      }
+    } catch {
+      // Ignore local cache parse errors.
+    } finally {
+      hasInitializedRef.current = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem('canvas-notes', JSON.stringify(notes))
+  }, [notes])
+
+  useEffect(() => {
+    if (!hasInitializedRef.current) {
+      return
+    }
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+    }
+    setSyncState('saving')
+    saveTimerRef.current = setTimeout(() => {
+      void (async () => {
+        const result = await saveNotesServer({ data: { notes } })
+        setSyncState(result.ok ? 'saved' : 'error')
+      })()
+    }, 450)
+
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+      }
+    }
+  }, [notes])
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const board = boardRef.current
+      if (!board) {
+        return
+      }
+
+      const dragState = dragStateRef.current
+      if (dragState) {
+        const note = notes.find((item) => item.id === dragState.id)
+        if (!note) {
+          return
+        }
+        const bounds = board.getBoundingClientRect()
+        const nextX = clamp(
+          event.clientX - bounds.left - dragState.offsetX,
+          0,
+          Math.max(0, bounds.width - note.width)
+        )
+        const nextY = clamp(
+          event.clientY - bounds.top - dragState.offsetY,
+          0,
+          Math.max(0, bounds.height - note.height)
+        )
+        setNotes((current) =>
+          current.map((item) =>
+            item.id === dragState.id ? { ...item, x: nextX, y: nextY } : item
+          )
+        )
+        return
+      }
+
+      const resizeState = resizeStateRef.current
+      if (resizeState) {
+        const bounds = board.getBoundingClientRect()
+        const deltaX = event.clientX - resizeState.startX
+        const deltaY = event.clientY - resizeState.startY
+        const nextWidth = clamp(
+          resizeState.startWidth + deltaX,
+          MIN_NOTE_WIDTH,
+          Math.max(MIN_NOTE_WIDTH, bounds.width - resizeState.noteX)
+        )
+        const nextHeight = clamp(
+          resizeState.startHeight + deltaY,
+          MIN_NOTE_HEIGHT,
+          Math.max(MIN_NOTE_HEIGHT, bounds.height - resizeState.noteY)
+        )
+        setNotes((current) =>
+          current.map((item) =>
+            item.id === resizeState.id
+              ? { ...item, width: nextWidth, height: nextHeight }
+              : item
+          )
+        )
+      }
+    }
+
+    const onPointerUp = () => {
+      dragStateRef.current = null
+      resizeStateRef.current = null
+      setActiveNoteId(null)
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+    }
+  }, [notes])
+
+  const createNote = () => {
+    const board = boardRef.current
+    const id = `note-${Date.now()}`
+    const x = board
+      ? clamp(
+          board.clientWidth / 2 - DEFAULT_NOTE_WIDTH / 2,
+          0,
+          board.clientWidth - DEFAULT_NOTE_WIDTH
+        )
+      : 100
+    const y = board
+      ? clamp(
+          board.clientHeight / 2 - DEFAULT_NOTE_HEIGHT / 2,
+          0,
+          board.clientHeight - DEFAULT_NOTE_HEIGHT
+        )
+      : 100
+
+    setNotes((current) => [
+      ...current,
+      {
+        id,
+        title: 'New note',
+        body: '',
+        tag: '',
+        x,
+        y,
+        width: DEFAULT_NOTE_WIDTH,
+        height: DEFAULT_NOTE_HEIGHT,
+        color: NOTE_COLORS[current.length % NOTE_COLORS.length],
+      },
+    ])
+  }
+
+  const bringToFront = (id: string) => {
+    setNotes((current) => {
+      const target = current.find((item) => item.id === id)
+      if (!target) {
+        return current
+      }
+      return [...current.filter((item) => item.id !== id), target]
+    })
+  }
+
+  const startDrag = (id: string, event: React.PointerEvent<HTMLDivElement>) => {
+    const board = boardRef.current
+    if (!board) {
+      return
+    }
+    const source = event.target as HTMLElement
+    if (['INPUT', 'TEXTAREA', 'BUTTON', 'SELECT'].includes(source.tagName)) {
+      return
+    }
+    const note = notes.find((item) => item.id === id)
+    if (!note) {
+      return
+    }
+    const bounds = board.getBoundingClientRect()
+    dragStateRef.current = {
+      id,
+      offsetX: event.clientX - bounds.left - note.x,
+      offsetY: event.clientY - bounds.top - note.y,
+    }
+    resizeStateRef.current = null
+    setActiveNoteId(id)
+    bringToFront(id)
+  }
+
+  const startResize = (id: string, event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const note = notes.find((item) => item.id === id)
+    if (!note) {
+      return
+    }
+    dragStateRef.current = null
+    resizeStateRef.current = {
+      id,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: note.width,
+      startHeight: note.height,
+      noteX: note.x,
+      noteY: note.y,
+    }
+    setActiveNoteId(id)
+    bringToFront(id)
+  }
+
+  const removeNote = (id: string) => {
+    setNotes((current) => current.filter((note) => note.id !== id))
+  }
+
+  const updateNote = (
+    id: string,
+    field: keyof Pick<Note, 'title' | 'body' | 'tag' | 'color'>,
+    value: string
+  ) => {
+    setNotes((current) =>
+      current.map((note) => (note.id === id ? { ...note, [field]: value } : note))
+    )
+  }
+
+  return (
+    <main className="h-[calc(100vh-4rem)] bg-slate-950 text-slate-100">
+      <section className="h-full p-4 md:p-6 flex flex-col gap-4">
+        <div className="bg-slate-900/80 border border-slate-700 rounded-xl p-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold">Your Canvas Board</h2>
+              <p className="text-sm text-slate-400">
+                Showing {filteredNotes.length} of {notes.length} notes
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span
+                className={`text-xs font-medium px-2 py-1 rounded border ${
+                  syncState === 'saved'
+                    ? 'text-emerald-300 border-emerald-500/50'
+                    : syncState === 'error'
+                      ? 'text-rose-300 border-rose-500/50'
+                      : 'text-amber-300 border-amber-500/50'
+                }`}
+              >
+                {syncState === 'saved'
+                  ? 'Synced'
+                  : syncState === 'error'
+                    ? 'Sync failed'
+                    : syncState === 'saving'
+                      ? 'Saving...'
+                      : 'Ready'}
+              </span>
+              <button
+                type="button"
+                onClick={createNote}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-400 text-slate-900 font-semibold hover:bg-amber-300 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Add note
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label className="relative block">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search title, body, or tag..."
+                className="w-full h-10 pl-9 pr-3 rounded-lg bg-slate-950 border border-slate-700 text-sm outline-none focus:border-slate-500"
+              />
+            </label>
+            <select
+              value={colorFilter}
+              onChange={(event) => setColorFilter(event.target.value)}
+              className="h-10 rounded-lg bg-slate-950 border border-slate-700 text-sm px-3 outline-none focus:border-slate-500"
+            >
+              <option value="all">All colors</option>
+              {NOTE_COLORS.map((color) => (
+                <option key={color} value={color}>
+                  {color}
+                </option>
+              ))}
+            </select>
+            <select
+              value={tagFilter}
+              onChange={(event) => setTagFilter(event.target.value)}
+              className="h-10 rounded-lg bg-slate-950 border border-slate-700 text-sm px-3 outline-none focus:border-slate-500"
+            >
+              <option value="all">All tags</option>
+              {tags.map((tag) => (
+                <option key={tag} value={tag}>
+                  {tag}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div
+          ref={boardRef}
+          className="relative flex-1 border border-slate-700 rounded-2xl overflow-hidden"
+          style={{
+            backgroundColor: '#0f172a',
+            backgroundImage:
+              'linear-gradient(rgba(148,163,184,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.12) 1px, transparent 1px)',
+            backgroundSize: '28px 28px',
+          }}
+        >
+          {filteredNotes.map((note) => (
+            <div
+              key={note.id}
+              className={`absolute rounded-xl border border-slate-800/30 shadow-xl ${
+                activeNoteId === note.id ? 'ring-2 ring-amber-200/70' : ''
+              }`}
+              style={{
+                left: note.x,
+                top: note.y,
+                width: note.width,
+                height: note.height,
+                backgroundColor: note.color,
+              }}
+              onPointerDown={() => bringToFront(note.id)}
+            >
+              <div
+                onPointerDown={(event) => startDrag(note.id, event)}
+                className="h-10 px-3 flex items-center justify-between cursor-grab active:cursor-grabbing bg-black/10 rounded-t-xl select-none touch-none"
+              >
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-800/70">
+                  note
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeNote(note.id)}
+                  className="p-1 rounded text-slate-800/70 hover:bg-black/10 hover:text-slate-950"
+                  aria-label="Delete note"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="h-[calc(100%-2.5rem)] px-3 py-2 flex flex-col gap-2">
+                <input
+                  value={note.title}
+                  onChange={(event) =>
+                    updateNote(note.id, 'title', event.target.value)
+                  }
+                  className="bg-transparent border-none p-0 m-0 text-base font-semibold text-slate-900 placeholder:text-slate-700/60 focus:outline-none"
+                  placeholder="Title"
+                />
+                <textarea
+                  value={note.body}
+                  onChange={(event) =>
+                    updateNote(note.id, 'body', event.target.value)
+                  }
+                  className="w-full flex-1 resize-none bg-transparent border-none text-sm leading-relaxed text-slate-900 placeholder:text-slate-700/60 focus:outline-none"
+                  placeholder="Write your note..."
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <input
+                    value={note.tag}
+                    onChange={(event) => updateNote(note.id, 'tag', event.target.value)}
+                    className="w-24 bg-black/5 rounded px-2 py-1 text-xs text-slate-900 placeholder:text-slate-700/70 focus:outline-none"
+                    placeholder="tag"
+                  />
+                  <div className="flex items-center gap-1">
+                    {NOTE_COLORS.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => updateNote(note.id, 'color', color)}
+                        className={`w-4 h-4 rounded-full border ${
+                          note.color === color
+                            ? 'border-slate-900'
+                            : 'border-slate-700/40'
+                        }`}
+                        style={{ backgroundColor: color }}
+                        aria-label="Set note color"
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className="absolute right-0 bottom-0 w-4 h-4 cursor-se-resize bg-black/15 rounded-tl-md"
+                onPointerDown={(event) => startResize(note.id, event)}
+                aria-label="Resize note"
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+    </main>
+  )
+}
