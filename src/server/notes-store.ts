@@ -2,6 +2,13 @@ import type { Note } from '@/lib/notes'
 import { sanitizeNotes, seedNotes } from '@/lib/notes'
 
 const SQLITE_PATH = process.env.SQLITE_PATH || '.data/notes.db'
+const SUPABASE_PROJECT_ID = process.env.SUPABASE_PROJECT_ID
+const SUPABASE_URL =
+  process.env.SUPABASE_URL ||
+  (SUPABASE_PROJECT_ID ? `https://${SUPABASE_PROJECT_ID}.supabase.co` : '')
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || ''
+const SUPABASE_TABLE = process.env.SUPABASE_TABLE || 'app_state'
+const SUPABASE_ROW_ID = process.env.SUPABASE_ROW_ID || 'main'
 
 type PostgresPoolLike = {
   query: (text: string, params?: unknown[]) => Promise<{ rows: Array<{ notes: unknown }> }>
@@ -29,7 +36,11 @@ export async function saveNotesToStore(notes: Note[]) {
 }
 
 async function readRawNotes() {
-  const backend = process.env.DATABASE_URL ? 'postgres' : 'sqlite'
+  const backend = resolveBackend()
+  if (backend === 'supabase') {
+    return await readSupabaseNotes()
+  }
+
   if (backend === 'postgres') {
     const pool = await getPostgresPool()
     const result = await pool.query('SELECT notes FROM app_state WHERE id = $1', ['main'])
@@ -51,7 +62,12 @@ async function readRawNotes() {
 }
 
 async function writeRawNotes(notes: Note[]) {
-  const backend = process.env.DATABASE_URL ? 'postgres' : 'sqlite'
+  const backend = resolveBackend()
+  if (backend === 'supabase') {
+    await writeSupabaseNotes(notes)
+    return
+  }
+
   if (backend === 'postgres') {
     const pool = await getPostgresPool()
     await pool.query(
@@ -71,6 +87,66 @@ async function writeRawNotes(notes: Note[]) {
      ON CONFLICT(id)
      DO UPDATE SET notes = excluded.notes, updated_at = datetime('now')`
   ).run('main', JSON.stringify(notes))
+}
+
+function resolveBackend() {
+  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+    return 'supabase' as const
+  }
+  if (process.env.DATABASE_URL) {
+    return 'postgres' as const
+  }
+  return 'sqlite' as const
+}
+
+async function readSupabaseNotes() {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return seedNotes
+  }
+
+  const endpoint = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?id=eq.${encodeURIComponent(
+    SUPABASE_ROW_ID
+  )}&select=notes&limit=1`
+  const response = await fetch(endpoint, {
+    method: 'GET',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`Supabase read failed with status ${response.status}`)
+  }
+  const rows = (await response.json()) as Array<{ notes?: unknown }>
+  return rows[0]?.notes ?? seedNotes
+}
+
+async function writeSupabaseNotes(notes: Note[]) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Supabase is not configured.')
+  }
+
+  const endpoint = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`
+  const payload = [
+    {
+      id: SUPABASE_ROW_ID,
+      notes,
+      updated_at: new Date().toISOString(),
+    },
+  ]
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    throw new Error(`Supabase write failed with status ${response.status}`)
+  }
 }
 
 async function getSqliteDb() {
