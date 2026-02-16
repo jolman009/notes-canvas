@@ -5,6 +5,7 @@ export type AuthSession = {
   user: {
     id: string
     email: string
+    name?: string
   }
 }
 
@@ -26,7 +27,8 @@ export function getStoredSession(): AuthSession | null {
       typeof parsed.expiresAt !== 'number' ||
       !parsed.user ||
       typeof parsed.user.id !== 'string' ||
-      typeof parsed.user.email !== 'string'
+      typeof parsed.user.email !== 'string' ||
+      (parsed.user.name !== undefined && typeof parsed.user.name !== 'string')
     ) {
       return null
     }

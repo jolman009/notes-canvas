@@ -9,6 +9,7 @@ export const Route = createFileRoute('/signup')({
 
 function SignUpPage() {
   const navigate = useNavigate()
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -35,7 +36,7 @@ function SignUpPage() {
     setIsSubmitting(true)
     try {
       const result = await signUpWithEmailServer({
-        data: { email, password },
+        data: { name, email, password },
       })
       if (!result.ok) {
         setError(result.message)
@@ -60,6 +61,14 @@ function SignUpPage() {
           Create an account with email and password.
         </p>
         <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-3">
+          <input
+            type="text"
+            required
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Name"
+            className="h-11 rounded-lg bg-slate-950 border border-slate-700 px-3 outline-none focus:border-slate-500"
+          />
           <input
             type="email"
             required

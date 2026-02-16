@@ -10,6 +10,7 @@ type AuthResult =
         user: {
           id: string
           email: string
+          name?: string
         }
       }
       message?: string
@@ -35,17 +36,26 @@ export const signInWithEmailServer = createServerFn({ method: 'POST' })
   })
 
 export const signUpWithEmailServer = createServerFn({ method: 'POST' })
-  .inputValidator((input: { email: string; password: string }) => ({
+  .inputValidator((input: { email: string; password: string; name?: string }) => ({
     email: String(input.email || '').trim().toLowerCase(),
     password: String(input.password || ''),
+    name: String(input.name || '').trim(),
   }))
   .handler(async ({ data }) => {
-    return await runSupabaseAuth('/auth/v1/signup', data, false)
+    return await runSupabaseAuth(
+      '/auth/v1/signup',
+      {
+        email: data.email,
+        password: data.password,
+        data: data.name ? { full_name: data.name, name: data.name } : undefined,
+      },
+      false
+    )
   })
 
 async function runSupabaseAuth(
   path: string,
-  payload: { email: string; password: string },
+  payload: { email: string; password: string; data?: Record<string, string> },
   requireSession: boolean
 ): Promise<AuthResult> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -69,7 +79,14 @@ async function runSupabaseAuth(
     access_token?: string
     refresh_token?: string
     expires_in?: number
-    user?: { id?: string; email?: string }
+    user?: {
+      id?: string
+      email?: string
+      user_metadata?: {
+        full_name?: string
+        name?: string
+      }
+    }
     msg?: string
     error_description?: string
     error?: string
@@ -109,7 +126,15 @@ async function runSupabaseAuth(
       user: {
         id: body.user.id,
         email: body.user.email,
+        name: extractUserName(body.user.user_metadata),
       },
     },
   }
+}
+
+function extractUserName(metadata?: { full_name?: string; name?: string }) {
+  if (!metadata) {
+    return undefined
+  }
+  return metadata.full_name || metadata.name || undefined
 }
