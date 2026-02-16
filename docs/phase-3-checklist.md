@@ -40,12 +40,12 @@ Phase 3 covers:
   - [x] Unit tests for revision/conflict logic
   - [x] Integration test: two users edit same board concurrently
   - [x] Integration test: unauthorized/non-member realtime/write attempts denied
-- [ ] Add manual QA matrix:
-  - [ ] Owner + editor simultaneous edit behavior
-  - [ ] Viewer realtime read-only behavior
-  - [ ] Network drop/reconnect during active editing
-  - [ ] Invite acceptance + immediate realtime propagation
-- [ ] Add implementation notes after Phase 3 validation.
+- [x] Add manual QA matrix:
+  - [x] Owner + editor simultaneous edit behavior
+  - [x] Viewer realtime read-only behavior
+  - [x] Network drop/reconnect during active editing
+  - [x] Invite acceptance + immediate realtime propagation
+- [x] Add implementation notes after Phase 3 validation.
 
 ## In-Progress Notes
 - Implemented Supabase Realtime subscription for `board_state` in `src/routes/board.$boardId.tsx`.
@@ -60,8 +60,9 @@ Phase 3 covers:
 - Added integration tests in `src/server/board-store.integration.test.ts` for conflict and non-member denial.
 
 ## Exit Criteria
-- [ ] Two authenticated collaborators can see near-realtime board updates.
-- [ ] Stale writes are detected and handled without silent overwrites.
-- [ ] Non-members cannot read/write board state, including realtime channels.
-- [ ] Save failures and conflicts are visible and recoverable in UI.
-- [ ] Test suite includes coverage for sync, conflict, and authorization paths.
+- [x] Two authenticated collaborators can see near-realtime board updates.
+- [x] Stale writes are detected and handled without silent overwrites.
+- [x] Non-members cannot read/write board state, including realtime channels.
+- [x] Save failures and conflicts are visible and recoverable in UI.
+- [x] Test suite includes coverage for sync, conflict, and authorization paths.
+
