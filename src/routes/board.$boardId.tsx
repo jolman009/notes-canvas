@@ -42,11 +42,19 @@ const saveBoardNotesServer = createServerFn({ method: 'POST' })
     const auth = await import('@/server/supabase-auth')
     const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
     if (!verifiedUser || verifiedUser.id !== data.userId) {
-      return { ok: false as const, updatedAt: Date.now() }
+      return { ok: false as const, updatedAt: Date.now(), message: 'Invalid session.' }
     }
-    const store = await import('@/server/board-store')
-    await store.saveBoardNotes(data.accessToken, data.boardId, verifiedUser.id, data.notes)
-    return { ok: true as const, updatedAt: Date.now() }
+    try {
+      const store = await import('@/server/board-store')
+      await store.saveBoardNotes(data.accessToken, data.boardId, verifiedUser.id, data.notes)
+      return { ok: true as const, updatedAt: Date.now(), message: '' }
+    } catch {
+      return {
+        ok: false as const,
+        updatedAt: Date.now(),
+        message: 'You do not have access to update this board.',
+      }
+    }
   })
 
 const createInviteServer = createServerFn({ method: 'POST' })
@@ -65,18 +73,26 @@ const createInviteServer = createServerFn({ method: 'POST' })
     const auth = await import('@/server/supabase-auth')
     const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
     if (!verifiedUser || verifiedUser.id !== data.userId) {
-      return { ok: false as const, inviteToken: '' }
+      return { ok: false as const, inviteToken: '', message: 'Invalid session.' }
     }
-    const store = await import('@/server/board-store')
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-    const inviteToken = await store.createInvite(
-      data.accessToken,
-      data.boardId,
-      data.role,
-      expiresAt,
-      verifiedUser.id
-    )
-    return { ok: true as const, inviteToken }
+    try {
+      const store = await import('@/server/board-store')
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      const inviteToken = await store.createInvite(
+        data.accessToken,
+        data.boardId,
+        data.role,
+        expiresAt,
+        verifiedUser.id
+      )
+      return { ok: true as const, inviteToken, message: '' }
+    } catch (error) {
+      return {
+        ok: false as const,
+        inviteToken: '',
+        message: error instanceof Error ? error.message : 'Failed to create invite.',
+      }
+    }
   })
 
 export const Route = createFileRoute('/board/$boardId')({
@@ -94,6 +110,8 @@ function BoardRoute() {
   const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor')
   const [inviteLink, setInviteLink] = useState('')
+  const [inviteMessage, setInviteMessage] = useState('')
+  const [isCreatingInvite, setIsCreatingInvite] = useState(false)
   const [loadError, setLoadError] = useState('')
   const hasInitializedRef = useRef(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -188,23 +206,51 @@ function BoardRoute() {
     if (!session) {
       return
     }
-    const result = await createInviteServer({
-      data: {
-        userId: session.user.id,
-        accessToken: session.accessToken,
-        boardId,
-        role: inviteRole,
-      },
-    })
-    if (!result.ok) {
-      setInviteLink('Failed to create invite.')
-      return
-    }
-    const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-    const url = `${baseUrl}/invite/${result.inviteToken}`
-    setInviteLink(url)
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      await navigator.clipboard.writeText(url).catch(() => {})
+    setIsCreatingInvite(true)
+    setInviteMessage('Creating invite...')
+    setInviteLink('')
+    try {
+      const result = await createInviteServer({
+        data: {
+          userId: session.user.id,
+          accessToken: session.accessToken,
+          boardId,
+          role: inviteRole,
+        },
+      })
+      if (!result.ok) {
+        const rawMessage = result.message || 'Failed to create invite.'
+        if (
+          rawMessage.toLowerCase().includes('row-level security') ||
+          rawMessage.toLowerCase().includes('permission')
+        ) {
+          setInviteMessage('Invite creation is owner-only for this board.')
+        } else {
+          setInviteMessage(rawMessage)
+        }
+        return
+      }
+      const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+      const url = `${baseUrl}/invite/${result.inviteToken}`
+      setInviteLink(url)
+      setInviteMessage('Invite created. Link copied to clipboard.')
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(url).catch(() => {
+          setInviteMessage('Invite created. Copy the link manually below.')
+        })
+      }
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : 'Failed to create invite.'
+      if (
+        rawMessage.toLowerCase().includes('row-level security') ||
+        rawMessage.toLowerCase().includes('permission')
+      ) {
+        setInviteMessage('Invite creation is owner-only for this board.')
+      } else {
+        setInviteMessage(rawMessage)
+      }
+    } finally {
+      setIsCreatingInvite(false)
     }
   }
 
@@ -252,9 +298,10 @@ function BoardRoute() {
             <button
               type="button"
               onClick={() => void createInvite()}
+              disabled={isCreatingInvite}
               className="inline-flex items-center px-4 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
             >
-              Create invite
+              {isCreatingInvite ? 'Creating...' : 'Create invite'}
             </button>
             <button
               type="button"
@@ -273,6 +320,11 @@ function BoardRoute() {
       {inviteLink ? (
         <div className="px-6 pb-6 text-sm text-slate-300">
           Invite link: <span className="text-amber-300">{inviteLink}</span>
+        </div>
+      ) : null}
+      {inviteMessage ? (
+        <div className="fixed right-4 bottom-4 z-50 max-w-md rounded-lg border border-slate-600 bg-slate-900/95 px-4 py-3 text-sm text-slate-100 shadow-2xl">
+          {inviteMessage}
         </div>
       ) : null}
     </div>
