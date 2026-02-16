@@ -21,6 +21,13 @@ export type InviteAcceptResult = {
   status: 'joined' | 'already_member'
 }
 
+export type BoardSnapshot = {
+  notes: Note[]
+  revision: number
+  updatedBy: string | null
+  updatedAt: string | null
+}
+
 export async function listBoards(accessToken: string, userId: string) {
   const rows = await restFetch<Array<{ role: string; boards: null | {
     id: string
@@ -71,45 +78,93 @@ export async function createBoard(accessToken: string, ownerUserId: string, titl
 }
 
 export async function getBoardNotes(accessToken: string, boardId: string) {
+  const snapshot = await getBoardSnapshot(accessToken, boardId)
+  return snapshot.notes
+}
+
+export async function getBoardSnapshot(accessToken: string, boardId: string): Promise<BoardSnapshot> {
   const rows = await restFetch<Array<{ notes: unknown }>>(
-    `/rest/v1/board_state?board_id=eq.${encodeURIComponent(boardId)}&select=notes&limit=1`,
+    `/rest/v1/board_state?board_id=eq.${encodeURIComponent(
+      boardId
+    )}&select=notes,revision,updated_by,updated_at&limit=1`,
     {
       method: 'GET',
       accessToken,
     }
   )
-  const sanitized = sanitizeNotes(rows[0]?.notes)
-  return sanitized.length > 0 ? sanitized : seedNotes
+  const row = rows[0] as
+    | {
+        notes: unknown
+        revision?: number
+        updated_by?: string | null
+        updated_at?: string | null
+      }
+    | undefined
+  const sanitized = sanitizeNotes(row?.notes)
+  return {
+    notes: sanitized.length > 0 ? sanitized : seedNotes,
+    revision: typeof row?.revision === 'number' ? Math.max(0, row.revision) : 0,
+    updatedBy: typeof row?.updated_by === 'string' ? row.updated_by : null,
+    updatedAt: typeof row?.updated_at === 'string' ? row.updated_at : null,
+  }
 }
 
 export async function saveBoardNotes(
   accessToken: string,
   boardId: string,
   userId: string,
+  notes: Note[],
+  expectedRevision: number
+) {
+  const cleaned = sanitizeNotes(notes)
+  const safeRevision = Math.max(0, Math.floor(expectedRevision))
+  const nextRevision = safeRevision + 1
+  const updated = await restFetch<Array<{ revision: number }>>(
+    `/rest/v1/board_state?board_id=eq.${encodeURIComponent(
+      boardId
+    )}&revision=eq.${encodeURIComponent(String(safeRevision))}&select=revision`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: {
+        notes: cleaned,
+        revision: nextRevision,
+        updated_by: userId,
+      },
+      prefer: 'return=representation',
+    }
+  )
+
+  if (!updated[0]) {
+    throw new Error('REVISION_CONFLICT')
+  }
+
+  return {
+    revision: nextRevision,
+    updatedBy: userId,
+  }
+}
+
+export async function forceReplaceBoardNotes(
+  accessToken: string,
+  boardId: string,
+  userId: string,
   notes: Note[]
 ) {
   const cleaned = sanitizeNotes(notes)
-  const current = await restFetch<Array<{ revision: number }>>(
-    `/rest/v1/board_state?board_id=eq.${encodeURIComponent(boardId)}&select=revision&limit=1`,
+  const current = await getBoardSnapshot(accessToken, boardId)
+  const nextRevision = current.revision + 1
+  await restFetch<Array<{ board_id: string }>>(
+    `/rest/v1/board_state?board_id=eq.${encodeURIComponent(boardId)}&select=board_id`,
     {
-      method: 'GET',
-      accessToken,
-    }
-  )
-  const revision = (current[0]?.revision || 0) + 1
-
-  await restFetch<Array<{ board_id: string }>>('/rest/v1/board_state?select=board_id', {
-    method: 'POST',
+    method: 'PATCH',
     accessToken,
-    body: [
-      {
-        board_id: boardId,
-        notes: cleaned,
-        revision,
-        updated_by: userId,
-      },
-    ],
-    prefer: 'resolution=merge-duplicates,return=representation',
+    body: {
+      notes: cleaned,
+      revision: nextRevision,
+      updated_by: userId,
+    },
+    prefer: 'return=representation',
   })
 }
 

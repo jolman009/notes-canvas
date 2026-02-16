@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import BoardCanvas from '@/components/BoardCanvas'
 import { clearStoredSession, getStoredSession, isSessionValid, type AuthSession } from '@/lib/auth-session'
 import { sanitizeNotes, seedNotes, type Note } from '@/lib/notes'
@@ -15,14 +16,26 @@ const loadBoardNotesServer = createServerFn({ method: 'POST' })
     const auth = await import('@/server/supabase-auth')
     const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
     if (!verifiedUser || verifiedUser.id !== data.userId) {
-      return { ok: false as const, notes: seedNotes }
+      return {
+        ok: false as const,
+        notes: seedNotes,
+        revision: 0,
+        updatedBy: null as string | null,
+        updatedAt: null as string | null,
+      }
     }
     try {
       const store = await import('@/server/board-store')
-      const notes = await store.getBoardNotes(data.accessToken, data.boardId)
-      return { ok: true as const, notes }
+      const snapshot = await store.getBoardSnapshot(data.accessToken, data.boardId)
+      return { ok: true as const, ...snapshot }
     } catch {
-      return { ok: false as const, notes: seedNotes }
+      return {
+        ok: false as const,
+        notes: seedNotes,
+        revision: 0,
+        updatedBy: null as string | null,
+        updatedAt: null as string | null,
+      }
     }
   })
 
@@ -31,28 +44,61 @@ const saveBoardNotesServer = createServerFn({ method: 'POST' })
     userId: string
     accessToken: string
     boardId: string
+    expectedRevision: number
     notes: Note[]
   }) => ({
     userId: String(input.userId || '').trim(),
     accessToken: String(input.accessToken || ''),
     boardId: String(input.boardId || '').trim(),
+    expectedRevision:
+      typeof input.expectedRevision === 'number' ? Math.max(0, Math.floor(input.expectedRevision)) : 0,
     notes: sanitizeNotes(input.notes),
   }))
   .handler(async ({ data }) => {
     const auth = await import('@/server/supabase-auth')
     const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
     if (!verifiedUser || verifiedUser.id !== data.userId) {
-      return { ok: false as const, updatedAt: Date.now(), message: 'Invalid session.' }
+      return {
+        ok: false as const,
+        updatedAt: Date.now(),
+        message: 'Invalid session.',
+        code: 'auth' as const,
+        revision: data.expectedRevision,
+      }
     }
     try {
       const store = await import('@/server/board-store')
-      await store.saveBoardNotes(data.accessToken, data.boardId, verifiedUser.id, data.notes)
-      return { ok: true as const, updatedAt: Date.now(), message: '' }
-    } catch {
+      const saved = await store.saveBoardNotes(
+        data.accessToken,
+        data.boardId,
+        verifiedUser.id,
+        data.notes,
+        data.expectedRevision
+      )
+      return {
+        ok: true as const,
+        updatedAt: Date.now(),
+        message: '',
+        code: 'ok' as const,
+        revision: saved.revision,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      if (message.includes('REVISION_CONFLICT')) {
+        return {
+          ok: false as const,
+          updatedAt: Date.now(),
+          message: 'This board changed in another session. Reloaded latest version.',
+          code: 'conflict' as const,
+          revision: data.expectedRevision,
+        }
+      }
       return {
         ok: false as const,
         updatedAt: Date.now(),
         message: 'You do not have access to update this board.',
+        code: 'access' as const,
+        revision: data.expectedRevision,
       }
     }
   })
@@ -111,10 +157,21 @@ function BoardRoute() {
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor')
   const [inviteLink, setInviteLink] = useState('')
   const [inviteMessage, setInviteMessage] = useState('')
+  const [collabMessage, setCollabMessage] = useState('')
+  const [saveErrorMessage, setSaveErrorMessage] = useState('')
   const [isCreatingInvite, setIsCreatingInvite] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [boardRevision, setBoardRevision] = useState(0)
+  const [realtimeStatus, setRealtimeStatus] = useState<
+    'unconfigured' | 'connecting' | 'connected' | 'error'
+  >('unconfigured')
   const hasInitializedRef = useRef(false)
+  const suppressNextSaveRef = useRef(false)
+  const revisionRef = useRef(0)
+  const lastSyncedNotesRef = useRef<Note[]>(initialNotes)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const realtimeClientRef = useRef<SupabaseClient | null>(null)
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null)
 
   const cacheKey = useMemo(
     () => (session ? `canvas-board:${session.user.id}:${boardId}` : ''),
@@ -131,6 +188,47 @@ function BoardRoute() {
     setSession(current)
     setIsCheckingAuth(false)
   }, [navigate])
+
+  const realtimeConfig = useMemo(() => {
+    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID
+    const url =
+      import.meta.env.VITE_SUPABASE_URL ||
+      (projectId ? `https://${projectId}.supabase.co` : '')
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+    return {
+      url,
+      anonKey,
+      enabled: Boolean(url && anonKey),
+    }
+  }, [])
+
+  const reloadLatestSnapshot = useCallback(
+    async (showCollaboratorNotice: boolean) => {
+      if (!session) {
+        return
+      }
+      const latest = await loadBoardNotesServer({
+        data: {
+          userId: session.user.id,
+          accessToken: session.accessToken,
+          boardId,
+        },
+      })
+      if (!latest.ok || latest.revision <= revisionRef.current) {
+        return
+      }
+      revisionRef.current = latest.revision
+      setBoardRevision(latest.revision)
+      lastSyncedNotesRef.current = latest.notes
+      if (showCollaboratorNotice && latest.updatedBy && latest.updatedBy !== session.user.id) {
+        setCollabMessage('Board updated by a collaborator. Latest changes were loaded.')
+      }
+      suppressNextSaveRef.current = true
+      setNotes(latest.notes)
+      setSyncState('saved')
+    },
+    [boardId, session]
+  )
 
   useEffect(() => {
     if (!session || typeof window === 'undefined') {
@@ -158,7 +256,11 @@ function BoardRoute() {
         },
       })
       if (result.ok) {
+        suppressNextSaveRef.current = true
         setNotes(result.notes)
+        setBoardRevision(result.revision)
+        revisionRef.current = result.revision
+        lastSyncedNotesRef.current = result.notes
       } else {
         setLoadError('You do not have access to this board.')
         await navigate({ to: '/boards' })
@@ -178,9 +280,14 @@ function BoardRoute() {
     if (!session || !hasInitializedRef.current) {
       return
     }
+    if (suppressNextSaveRef.current) {
+      suppressNextSaveRef.current = false
+      return
+    }
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current)
     }
+    setSaveErrorMessage('')
     setSyncState('saving')
     saveTimerRef.current = setTimeout(() => {
       void (async () => {
@@ -189,10 +296,26 @@ function BoardRoute() {
             userId: session.user.id,
             accessToken: session.accessToken,
             boardId,
+            expectedRevision: revisionRef.current,
             notes,
           },
         })
-        setSyncState(result.ok ? 'saved' : 'error')
+        if (result.ok) {
+          setSyncState('saved')
+          setBoardRevision(result.revision)
+          revisionRef.current = result.revision
+          lastSyncedNotesRef.current = notes
+          return
+        }
+        if (result.code === 'conflict') {
+          setCollabMessage(result.message)
+          await reloadLatestSnapshot(false)
+          return
+        }
+        setSaveErrorMessage(result.message || 'Save failed. Your local draft was rolled back.')
+        suppressNextSaveRef.current = true
+        setNotes(lastSyncedNotesRef.current)
+        setSyncState('error')
       })()
     }, 450)
     return () => {
@@ -200,7 +323,106 @@ function BoardRoute() {
         clearTimeout(saveTimerRef.current)
       }
     }
-  }, [session, boardId, notes])
+  }, [session, boardId, notes, reloadLatestSnapshot])
+
+  useEffect(() => {
+    if (!session || !hasInitializedRef.current) {
+      return
+    }
+    const timer = setInterval(() => {
+      void reloadLatestSnapshot(true)
+    }, realtimeStatus === 'connected' ? 15000 : 2500)
+    return () => clearInterval(timer)
+  }, [session, reloadLatestSnapshot, realtimeStatus])
+
+  useEffect(() => {
+    if (!session) {
+      return
+    }
+    const onOnline = () => {
+      void reloadLatestSnapshot(true)
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [session, reloadLatestSnapshot])
+
+  useEffect(() => {
+    if (!session || !hasInitializedRef.current) {
+      return
+    }
+    if (!realtimeConfig.enabled) {
+      setRealtimeStatus('unconfigured')
+      return
+    }
+
+    let cancelled = false
+    setRealtimeStatus('connecting')
+
+    void (async () => {
+      try {
+        const { createClient } = await import('@supabase/supabase-js')
+        if (cancelled) {
+          return
+        }
+
+        const client = createClient(realtimeConfig.url, realtimeConfig.anonKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+          },
+        })
+        await client.realtime.setAuth(session.accessToken)
+
+        const channel = client
+          .channel(`board-state:${boardId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'board_state',
+              filter: `board_id=eq.${boardId}`,
+            },
+            () => {
+              void reloadLatestSnapshot(true)
+            }
+          )
+          .subscribe((status) => {
+            if (cancelled) {
+              return
+            }
+            if (status === 'SUBSCRIBED') {
+              setRealtimeStatus('connected')
+              return
+            }
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+              setRealtimeStatus('error')
+            }
+          })
+
+        realtimeClientRef.current = client
+        realtimeChannelRef.current = channel
+      } catch {
+        if (!cancelled) {
+          setRealtimeStatus('error')
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      const client = realtimeClientRef.current
+      const channel = realtimeChannelRef.current
+      realtimeChannelRef.current = null
+      realtimeClientRef.current = null
+      if (client && channel) {
+        void client.removeChannel(channel)
+      }
+      if (client) {
+        void client.realtime.disconnect()
+      }
+    }
+  }, [boardId, session, reloadLatestSnapshot, realtimeConfig])
 
   const createInvite = async () => {
     if (!session) {
@@ -303,6 +525,26 @@ function BoardRoute() {
             >
               {isCreatingInvite ? 'Creating...' : 'Create invite'}
             </button>
+            <span className="text-xs text-slate-400">Rev {boardRevision}</span>
+            <span
+              className={`text-xs ${
+                realtimeStatus === 'connected'
+                  ? 'text-emerald-300'
+                  : realtimeStatus === 'connecting'
+                    ? 'text-amber-300'
+                    : realtimeStatus === 'error'
+                      ? 'text-rose-300'
+                      : 'text-slate-400'
+              }`}
+            >
+              {realtimeStatus === 'connected'
+                ? 'Live'
+                : realtimeStatus === 'connecting'
+                  ? 'Live connecting...'
+                  : realtimeStatus === 'error'
+                    ? 'Live offline'
+                    : 'Live not configured'}
+            </span>
             <button
               type="button"
               onClick={() => {
@@ -325,6 +567,16 @@ function BoardRoute() {
       {inviteMessage ? (
         <div className="fixed right-4 bottom-4 z-50 max-w-md rounded-lg border border-slate-600 bg-slate-900/95 px-4 py-3 text-sm text-slate-100 shadow-2xl">
           {inviteMessage}
+        </div>
+      ) : null}
+      {collabMessage ? (
+        <div className="fixed left-4 bottom-4 z-50 max-w-md rounded-lg border border-sky-600/60 bg-slate-900/95 px-4 py-3 text-sm text-sky-200 shadow-2xl">
+          {collabMessage}
+        </div>
+      ) : null}
+      {saveErrorMessage ? (
+        <div className="fixed left-4 top-20 z-50 max-w-md rounded-lg border border-rose-600/60 bg-slate-900/95 px-4 py-3 text-sm text-rose-200 shadow-2xl">
+          {saveErrorMessage}
         </div>
       ) : null}
     </div>
