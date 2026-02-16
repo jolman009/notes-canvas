@@ -26,6 +26,7 @@ export default function BoardCanvas({
   rightActions,
 }: BoardCanvasProps) {
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [colorFilter, setColorFilter] = useState('all')
   const [tagFilter, setTagFilter] = useState('all')
@@ -66,6 +67,10 @@ export default function BoardCanvas({
         return textMatches && colorMatches && tagMatches
       }),
     [notes, query, colorFilter, tagFilter]
+  )
+  const selectedNote = useMemo(
+    () => notes.find((note) => note.id === selectedNoteId) || null,
+    [notes, selectedNoteId]
   )
 
   useEffect(() => {
@@ -176,6 +181,7 @@ export default function BoardCanvas({
         color: NOTE_COLORS[notes.length % NOTE_COLORS.length],
       },
     ])
+    setSelectedNoteId(id)
   }
 
   const bringToFront = (id: string) => {
@@ -207,6 +213,7 @@ export default function BoardCanvas({
     }
     resizeStateRef.current = null
     setActiveNoteId(id)
+    setSelectedNoteId(id)
     bringToFront(id)
   }
 
@@ -228,11 +235,30 @@ export default function BoardCanvas({
       noteY: note.y,
     }
     setActiveNoteId(id)
+    setSelectedNoteId(id)
     bringToFront(id)
   }
 
   const removeNote = (id: string) => {
+    if (selectedNoteId === id) {
+      setSelectedNoteId(null)
+    }
     onNotesChange(notes.filter((note) => note.id !== id))
+  }
+
+  const removeNoteImage = (id: string) => {
+    onNotesChange(
+      notes.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              imageDataUrl: '',
+              imageNaturalWidth: 0,
+              imageNaturalHeight: 0,
+            }
+          : item
+      )
+    )
   }
 
   const updateNote = (
@@ -387,31 +413,37 @@ export default function BoardCanvas({
           </div>
         </div>
 
-        <div
-          ref={boardRef}
-          className="relative flex-1 border border-slate-700 rounded-2xl overflow-hidden"
-          style={{
-            backgroundColor: '#0f172a',
-            backgroundImage:
-              'linear-gradient(rgba(148,163,184,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.12) 1px, transparent 1px)',
-            backgroundSize: '28px 28px',
-          }}
-        >
-          {filteredNotes.map((note) => (
-            <div
-              key={note.id}
-              className={`absolute rounded-xl border border-slate-800/30 shadow-xl ${
-                activeNoteId === note.id ? 'ring-2 ring-amber-200/70' : ''
-              }`}
-              style={{
-                left: note.x,
-                top: note.y,
-                width: note.width,
-                height: note.height,
-                backgroundColor: note.color,
-              }}
-              onPointerDown={() => bringToFront(note.id)}
-            >
+        <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div
+            ref={boardRef}
+            className="relative min-h-[420px] lg:min-h-0 border border-slate-700 rounded-2xl overflow-hidden"
+            style={{
+              backgroundColor: '#0f172a',
+              backgroundImage:
+                'linear-gradient(rgba(148,163,184,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.12) 1px, transparent 1px)',
+              backgroundSize: '28px 28px',
+            }}
+          >
+            {filteredNotes.map((note) => (
+              <div
+                key={note.id}
+                className={`absolute rounded-xl border border-slate-800/30 shadow-xl ${
+                  activeNoteId === note.id || selectedNoteId === note.id
+                    ? 'ring-2 ring-amber-200/70'
+                    : ''
+                }`}
+                style={{
+                  left: note.x,
+                  top: note.y,
+                  width: note.width,
+                  height: note.height,
+                  backgroundColor: note.color,
+                }}
+                onPointerDown={() => {
+                  setSelectedNoteId(note.id)
+                  bringToFront(note.id)
+                }}
+              >
               <div
                 onPointerDown={(event) => startDrag(note.id, event)}
                 className="h-10 px-3 flex items-center justify-between cursor-grab active:cursor-grabbing bg-black/10 rounded-t-xl select-none touch-none"
@@ -508,20 +540,7 @@ export default function BoardCanvas({
                     <button
                       type="button"
                       className="text-xs px-2 py-1 bg-black/20 text-slate-900 border border-black/20 rounded font-medium"
-                      onClick={() =>
-                        onNotesChange(
-                          notes.map((item) =>
-                            item.id === note.id
-                              ? {
-                                  ...item,
-                                  imageDataUrl: '',
-                                  imageNaturalWidth: 0,
-                                  imageNaturalHeight: 0,
-                                }
-                              : item
-                          )
-                        )
-                      }
+                      onClick={() => removeNoteImage(note.id)}
                     >
                       Remove image
                     </button>
@@ -558,8 +577,136 @@ export default function BoardCanvas({
                 onPointerDown={(event) => startResize(note.id, event)}
                 aria-label="Resize note"
               />
+              </div>
+            ))}
+          </div>
+          <aside className="rounded-2xl border border-slate-700 bg-slate-900/85 p-4 flex flex-col gap-3 overflow-y-auto">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+                Inspector
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Select a note to edit details in one place.
+              </p>
             </div>
-          ))}
+            {!selectedNote ? (
+              <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+                No note selected.
+              </div>
+            ) : (
+              <>
+                <input
+                  value={selectedNote.title}
+                  onChange={(event) => updateNote(selectedNote.id, 'title', event.target.value)}
+                  className="h-10 rounded-lg bg-slate-950 border border-slate-700 px-3 text-sm outline-none focus:border-slate-500"
+                  placeholder="Title"
+                />
+                <textarea
+                  value={selectedNote.body}
+                  onChange={(event) => updateNote(selectedNote.id, 'body', event.target.value)}
+                  className="min-h-32 rounded-lg bg-slate-950 border border-slate-700 p-3 text-sm outline-none focus:border-slate-500 resize-y"
+                  placeholder="Write your note..."
+                />
+                <input
+                  value={selectedNote.tag}
+                  onChange={(event) => updateNote(selectedNote.id, 'tag', event.target.value)}
+                  className="h-10 rounded-lg bg-slate-950 border border-slate-700 px-3 text-sm outline-none focus:border-slate-500"
+                  placeholder="Tag"
+                />
+                <input
+                  value={selectedNote.link}
+                  onChange={(event) => updateNote(selectedNote.id, 'link', event.target.value)}
+                  className="h-10 rounded-lg bg-slate-950 border border-slate-700 px-3 text-sm outline-none focus:border-slate-500"
+                  placeholder="https://example.com"
+                />
+                {selectedNote.link.trim().length > 0 ? (
+                  <a
+                    href={toSafeLink(selectedNote.link)}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-xs text-amber-300 underline"
+                  >
+                    Open link
+                  </a>
+                ) : null}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {NOTE_COLORS.map((color) => (
+                    <button
+                      key={`${selectedNote.id}-${color}`}
+                      type="button"
+                      onClick={() => updateNote(selectedNote.id, 'color', color)}
+                      className={`h-6 w-6 rounded-full border ${
+                        selectedNote.color === color ? 'border-white' : 'border-slate-700'
+                      }`}
+                      style={{ backgroundColor: color }}
+                      aria-label="Set note color"
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 cursor-pointer text-slate-200">
+                    Upload image
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/gif,image/png,image/webp"
+                      className="hidden"
+                      onChange={(event) =>
+                        void updateNoteImage(selectedNote.id, event.target.files?.[0] ?? null)
+                      }
+                    />
+                  </label>
+                  {selectedNote.imageDataUrl ? (
+                    <>
+                      <button
+                        type="button"
+                        className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 text-slate-200"
+                        onClick={() =>
+                          updateNote(
+                            selectedNote.id,
+                            'imageFit',
+                            selectedNote.imageFit === 'cover' ? 'contain' : 'cover'
+                          )
+                        }
+                      >
+                        {selectedNote.imageFit === 'cover' ? 'Contain' : 'Cover'}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 text-slate-200"
+                        onClick={() => fitNoteToImage(selectedNote.id)}
+                      >
+                        Fit note
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 text-slate-200"
+                        onClick={() => removeNoteImage(selectedNote.id)}
+                      >
+                        Remove image
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+                {selectedNote.imageDataUrl ? (
+                  <div className="rounded-lg overflow-hidden border border-slate-700 bg-slate-950">
+                    <img
+                      src={selectedNote.imageDataUrl}
+                      alt="Selected note attachment"
+                      className="w-full h-32 object-cover"
+                      style={{ objectFit: selectedNote.imageFit }}
+                    />
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => removeNote(selectedNote.id)}
+                  className="mt-2 inline-flex items-center justify-center rounded-lg border border-rose-600/70 px-3 py-2 text-sm text-rose-300 hover:bg-rose-950/40"
+                >
+                  Delete note
+                </button>
+              </>
+            )}
+          </aside>
         </div>
       </section>
     </main>
