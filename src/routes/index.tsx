@@ -13,25 +13,48 @@ import {
   seedNotes,
   type Note,
 } from '@/lib/notes'
-import { clearStoredSession, getStoredSession, isSessionValid } from '@/lib/auth-session'
+import {
+  clearStoredSession,
+  getStoredSession,
+  isSessionValid,
+  type AuthSession,
+} from '@/lib/auth-session'
 
-const loadNotesServer = createServerFn({ method: 'GET' }).handler(async () => {
-  try {
-    const store = await import('@/server/notes-store')
-    return await store.loadNotesFromStore()
-  } catch {
-    return seedNotes
-  }
-})
-
-const saveNotesServer = createServerFn({ method: 'POST' })
-  .inputValidator((input: { notes: Note[] }) => ({
-    notes: sanitizeNotes(input.notes),
+const loadNotesServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { userId: string; accessToken: string }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
   }))
   .handler(async ({ data }) => {
     try {
+      const auth = await import('@/server/supabase-auth')
+      const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+      if (!verifiedUser || verifiedUser.id !== data.userId) {
+        return { ok: false as const, notes: seedNotes }
+      }
       const store = await import('@/server/notes-store')
-      await store.saveNotesToStore(data.notes)
+      const notes = await store.loadNotesFromStore(verifiedUser.id)
+      return { ok: true as const, notes }
+    } catch {
+      return { ok: false as const, notes: seedNotes }
+    }
+  })
+
+const saveNotesServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { notes: Note[]; userId: string; accessToken: string }) => ({
+    notes: sanitizeNotes(input.notes),
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+  }))
+  .handler(async ({ data }) => {
+    try {
+      const auth = await import('@/server/supabase-auth')
+      const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+      if (!verifiedUser || verifiedUser.id !== data.userId) {
+        return { ok: false as const, updatedAt: Date.now() }
+      }
+      const store = await import('@/server/notes-store')
+      await store.saveNotesToStore(verifiedUser.id, data.notes)
       return { ok: true as const, updatedAt: Date.now() }
     } catch {
       return { ok: false as const, updatedAt: Date.now() }
@@ -39,7 +62,7 @@ const saveNotesServer = createServerFn({ method: 'POST' })
   })
 
 export const Route = createFileRoute('/')({
-  loader: () => loadNotesServer(),
+  loader: () => seedNotes,
   component: App,
 })
 
@@ -47,6 +70,7 @@ function App() {
   const navigate = useNavigate()
   const initialNotes = Route.useLoaderData()
   const [notes, setNotes] = useState<Note[]>(initialNotes)
+  const [session, setSession] = useState<AuthSession | null>(null)
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null)
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const [query, setQuery] = useState('')
@@ -95,46 +119,61 @@ function App() {
   )
 
   useEffect(() => {
-    const session = getStoredSession()
-    if (!isSessionValid(session)) {
+    const nextSession = getStoredSession()
+    if (!isSessionValid(nextSession)) {
       clearStoredSession()
       void navigate({ to: '/login' })
       return
     }
+    setSession(nextSession)
     setIsCheckingAuth(false)
   }, [navigate])
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || !session) {
       return
     }
-    const cached = window.localStorage.getItem('canvas-notes')
-    if (!cached) {
-      hasInitializedRef.current = true
-      return
-    }
-    try {
-      const parsed = JSON.parse(cached) as unknown
-      const sanitized = sanitizeNotes(parsed)
-      if (sanitized.length > 0) {
-        setNotes(sanitized)
+    hasInitializedRef.current = false
+    const cacheKey = getUserNotesCacheKey(session.user.id)
+    const cached = window.localStorage.getItem(cacheKey)
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as unknown
+        const sanitized = sanitizeNotes(parsed)
+        if (sanitized.length > 0) {
+          setNotes(sanitized)
+        }
+      } catch {
+        // Ignore local cache parse errors.
       }
-    } catch {
-      // Ignore local cache parse errors.
-    } finally {
-      hasInitializedRef.current = true
     }
-  }, [])
+
+    void (async () => {
+      const result = await loadNotesServer({
+        data: {
+          userId: session.user.id,
+          accessToken: session.accessToken,
+        },
+      })
+      if (result.ok) {
+        setNotes(result.notes)
+      }
+      hasInitializedRef.current = true
+    })()
+  }, [session])
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || !session) {
       return
     }
-    window.localStorage.setItem('canvas-notes', JSON.stringify(notes))
-  }, [notes])
+    window.localStorage.setItem(
+      getUserNotesCacheKey(session.user.id),
+      JSON.stringify(notes)
+    )
+  }, [notes, session])
 
   useEffect(() => {
-    if (!hasInitializedRef.current) {
+    if (!hasInitializedRef.current || !session) {
       return
     }
     if (saveTimerRef.current) {
@@ -143,7 +182,13 @@ function App() {
     setSyncState('saving')
     saveTimerRef.current = setTimeout(() => {
       void (async () => {
-        const result = await saveNotesServer({ data: { notes } })
+        const result = await saveNotesServer({
+          data: {
+            notes,
+            userId: session.user.id,
+            accessToken: session.accessToken,
+          },
+        })
         setSyncState(result.ok ? 'saved' : 'error')
       })()
     }, 450)
@@ -153,7 +198,7 @@ function App() {
         clearTimeout(saveTimerRef.current)
       }
     }
-  }, [notes])
+  }, [notes, session])
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -452,6 +497,8 @@ function App() {
               <button
                 type="button"
                 onClick={() => {
+                  setSession(null)
+                  hasInitializedRef.current = false
                   clearStoredSession()
                   void navigate({ to: '/login' })
                 }}
@@ -720,4 +767,8 @@ function toSafeLink(value: string) {
     return trimmed
   }
   return `https://${trimmed}`
+}
+
+function getUserNotesCacheKey(userId: string) {
+  return `canvas-notes:${userId}`
 }

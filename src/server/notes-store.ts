@@ -8,7 +8,6 @@ const SUPABASE_URL =
   (SUPABASE_PROJECT_ID ? `https://${SUPABASE_PROJECT_ID}.supabase.co` : '')
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || ''
 const SUPABASE_TABLE = process.env.SUPABASE_TABLE || 'app_state'
-const SUPABASE_ROW_ID = process.env.SUPABASE_ROW_ID || 'main'
 
 type PostgresPoolLike = {
   query: (text: string, params?: unknown[]) => Promise<{ rows: Array<{ notes: unknown }> }>
@@ -24,33 +23,34 @@ let sqliteDb: null | {
 
 let pgPool: PostgresPoolLike | null = null
 
-export async function loadNotesFromStore(): Promise<Note[]> {
-  const raw = await readRawNotes()
+export async function loadNotesFromStore(ownerId: string): Promise<Note[]> {
+  const raw = await readRawNotes(ownerId)
   const sanitized = sanitizeNotes(raw)
   return sanitized.length > 0 ? sanitized : seedNotes
 }
 
-export async function saveNotesToStore(notes: Note[]) {
+export async function saveNotesToStore(ownerId: string, notes: Note[]) {
   const cleaned = sanitizeNotes(notes)
-  await writeRawNotes(cleaned)
+  await writeRawNotes(ownerId, cleaned)
 }
 
-async function readRawNotes() {
+async function readRawNotes(ownerId: string) {
+  const scopedId = toScopedBoardId(ownerId)
   const backend = resolveBackend()
   if (backend === 'supabase') {
-    return await readSupabaseNotes()
+    return await readSupabaseNotes(scopedId)
   }
 
   if (backend === 'postgres') {
     const pool = await getPostgresPool()
-    const result = await pool.query('SELECT notes FROM app_state WHERE id = $1', ['main'])
+    const result = await pool.query('SELECT notes FROM app_state WHERE id = $1', [scopedId])
     return result.rows[0]?.notes ?? seedNotes
   }
 
   const db = await getSqliteDb()
   const row = db
     .prepare('SELECT notes FROM app_state WHERE id = ?')
-    .get('main') as { notes?: string } | undefined
+    .get(scopedId) as { notes?: string } | undefined
   if (!row?.notes) {
     return seedNotes
   }
@@ -61,10 +61,11 @@ async function readRawNotes() {
   }
 }
 
-async function writeRawNotes(notes: Note[]) {
+async function writeRawNotes(ownerId: string, notes: Note[]) {
+  const scopedId = toScopedBoardId(ownerId)
   const backend = resolveBackend()
   if (backend === 'supabase') {
-    await writeSupabaseNotes(notes)
+    await writeSupabaseNotes(scopedId, notes)
     return
   }
 
@@ -75,7 +76,7 @@ async function writeRawNotes(notes: Note[]) {
        VALUES ($1, $2::jsonb, NOW())
        ON CONFLICT (id)
        DO UPDATE SET notes = EXCLUDED.notes, updated_at = NOW()`,
-      ['main', JSON.stringify(notes)]
+      [scopedId, JSON.stringify(notes)]
     )
     return
   }
@@ -86,7 +87,7 @@ async function writeRawNotes(notes: Note[]) {
      VALUES (?, ?, datetime('now'))
      ON CONFLICT(id)
      DO UPDATE SET notes = excluded.notes, updated_at = datetime('now')`
-  ).run('main', JSON.stringify(notes))
+  ).run(scopedId, JSON.stringify(notes))
 }
 
 function resolveBackend() {
@@ -99,13 +100,13 @@ function resolveBackend() {
   return 'sqlite' as const
 }
 
-async function readSupabaseNotes() {
+async function readSupabaseNotes(scopedId: string) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     return seedNotes
   }
 
   const endpoint = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?id=eq.${encodeURIComponent(
-    SUPABASE_ROW_ID
+    scopedId
   )}&select=notes&limit=1`
   const response = await fetch(endpoint, {
     method: 'GET',
@@ -121,7 +122,7 @@ async function readSupabaseNotes() {
   return rows[0]?.notes ?? seedNotes
 }
 
-async function writeSupabaseNotes(notes: Note[]) {
+async function writeSupabaseNotes(scopedId: string, notes: Note[]) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new Error('Supabase is not configured.')
   }
@@ -129,7 +130,7 @@ async function writeSupabaseNotes(notes: Note[]) {
   const endpoint = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`
   const payload = [
     {
-      id: SUPABASE_ROW_ID,
+      id: scopedId,
       notes,
       updated_at: new Date().toISOString(),
     },
@@ -147,6 +148,14 @@ async function writeSupabaseNotes(notes: Note[]) {
   if (!response.ok) {
     throw new Error(`Supabase write failed with status ${response.status}`)
   }
+}
+
+function toScopedBoardId(ownerId: string) {
+  const cleaned = String(ownerId || '').trim()
+  if (!cleaned) {
+    throw new Error('Owner ID is required for note persistence.')
+  }
+  return `user:${cleaned}`
 }
 
 async function getSqliteDb() {
