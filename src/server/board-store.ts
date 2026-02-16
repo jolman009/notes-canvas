@@ -281,56 +281,47 @@ export async function acceptInvite(
   userId: string,
   token: string
 ): Promise<InviteAcceptResult> {
-  const rows = await restFetch<
-    Array<{ board_id: string; role: 'editor' | 'viewer'; expires_at: string }>
-  >(`/rest/v1/board_invites?token=eq.${encodeURIComponent(token)}&select=board_id,role,expires_at&limit=1`, {
-    method: 'GET',
-    accessToken,
-  })
-
-  const invite = rows[0]
-  if (!invite) {
-    console.warn('[board.invite.accept.invalid]', { userId, token })
-    throw new Error('INVITE_INVALID')
-  }
-  if (new Date(invite.expires_at).getTime() <= Date.now()) {
-    console.warn('[board.invite.accept.expired]', { userId, boardId: invite.board_id })
-    throw new Error('INVITE_EXPIRED')
-  }
-
-  const existingMembership = await restFetch<Array<{ board_id: string }>>(
-    `/rest/v1/board_members?board_id=eq.${encodeURIComponent(
-      invite.board_id
-    )}&user_id=eq.${encodeURIComponent(userId)}&select=board_id&limit=1`,
-    {
-      method: 'GET',
-      accessToken,
-    }
-  )
-  if (existingMembership[0]?.board_id) {
-    console.info('[board.invite.accept.already_member]', { userId, boardId: invite.board_id })
-    return {
-      boardId: invite.board_id,
-      status: 'already_member',
-    }
-  }
-
-  await restFetch<Array<{ board_id: string }>>('/rest/v1/board_members?select=board_id', {
-    method: 'POST',
-    accessToken,
-    body: [
+  try {
+    const rows = await restFetch<Array<{ board_id: string; status: string }>>(
+      '/rest/v1/rpc/accept_board_invite',
       {
-        board_id: invite.board_id,
-        user_id: userId,
-        role: invite.role,
-      },
-    ],
-    prefer: 'return=representation',
-  })
-
-  return {
-    boardId: invite.board_id,
-    status: 'joined',
+        method: 'POST',
+        accessToken,
+        body: {
+          invite_token: token,
+        },
+      }
+    )
+    const result = rows[0]
+    if (!result?.board_id) {
+      throw new Error('INVITE_INVALID')
+    }
+    const status = result.status === 'already_member' ? 'already_member' : 'joined'
+    if (status === 'already_member') {
+      console.info('[board.invite.accept.already_member]', { userId, boardId: result.board_id })
+    } else {
+      console.info('[board.invite.accept.joined]', { userId, boardId: result.board_id })
+    }
+    return {
+      boardId: result.board_id,
+      status,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message.includes('INVITE_EXPIRED')) {
+      console.warn('[board.invite.accept.expired]', { userId })
+      throw new Error('INVITE_EXPIRED')
+    }
+    if (message.includes('INVITE_INVALID')) {
+      console.warn('[board.invite.accept.invalid]', { userId, token })
+      throw new Error('INVITE_INVALID')
+    }
+    if (message.includes('Could not find the function public.accept_board_invite')) {
+      throw new Error(
+        'Invite acceptance backend not installed. Run supabase/phase3_accept_invite_rpc.sql in Supabase SQL Editor.'
+      )
+    }
+    throw error instanceof Error ? error : new Error('INVITE_ACCEPT_FAILED')
   }
 }
 
