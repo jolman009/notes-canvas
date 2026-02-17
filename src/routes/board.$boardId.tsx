@@ -1568,7 +1568,7 @@ function BoardRoute() {
                 <input
                   value={boardTitleDraft}
                   onChange={(event) => setBoardTitleDraft(event.target.value)}
-                  className="h-10 min-w-72 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-slate-500"
+                  className="h-10 min-w-72 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-slate-500"
                   placeholder="Board title"
                 />
                 <button

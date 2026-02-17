@@ -120,7 +120,19 @@ function BoardsPage() {
     <main className="min-h-[calc(100vh-4rem)] bg-slate-950 text-slate-100 p-4 md:p-6">
       <section className="max-w-5xl mx-auto flex flex-col gap-4">
         <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col gap-3">
-          <h1 className="text-2xl font-semibold">My Boards</h1>
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-2xl font-semibold">My Boards</h1>
+            <button
+              type="button"
+              onClick={() => {
+                clearStoredSession()
+                void navigate({ to: '/login' })
+              }}
+              className="inline-flex items-center rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+            >
+              Log out
+            </button>
+          </div>
           <div className="flex gap-2">
             <input
               value={title}
