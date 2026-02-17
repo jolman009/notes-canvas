@@ -21,6 +21,20 @@ type BoardInviteSummary = {
   createdAt: string
 }
 
+type BoardDetails = {
+  id: string
+  title: string
+  ownerUserId: string
+  createdAt: string
+  updatedAt: string
+}
+
+type BoardMemberSummary = {
+  userId: string
+  role: 'owner' | 'editor' | 'viewer'
+  createdAt: string
+}
+
 const loadBoardNotesServer = createServerFn({ method: 'POST' })
   .inputValidator((input: { userId: string; accessToken: string; boardId: string }) => ({
     userId: String(input.userId || '').trim(),
@@ -226,6 +240,179 @@ const revokeInviteServer = createServerFn({ method: 'POST' })
     }
   })
 
+const loadBoardDetailsServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { userId: string; accessToken: string; boardId: string }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const, details: null as BoardDetails | null }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      const details = await store.getBoardDetails(data.accessToken, data.boardId)
+      return { ok: true as const, details }
+    } catch {
+      return { ok: false as const, details: null as BoardDetails | null }
+    }
+  })
+
+const listBoardMembersServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { userId: string; accessToken: string; boardId: string }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const, members: [] as BoardMemberSummary[] }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      const members = await store.listBoardMembers(data.accessToken, data.boardId)
+      return { ok: true as const, members }
+    } catch {
+      return { ok: false as const, members: [] as BoardMemberSummary[] }
+    }
+  })
+
+const renameBoardServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { userId: string; accessToken: string; boardId: string; title: string }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+    title: String(input.title || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const, message: 'Invalid session.' }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      await store.renameBoard(data.accessToken, data.boardId, data.title)
+      return { ok: true as const, message: '' }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Board rename failed.',
+      }
+    }
+  })
+
+const updateMemberRoleServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: {
+    userId: string
+    accessToken: string
+    boardId: string
+    memberUserId: string
+    role: 'editor' | 'viewer'
+  }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+    memberUserId: String(input.memberUserId || '').trim(),
+    role: input.role === 'viewer' ? 'viewer' : 'editor',
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      await store.updateBoardMemberRole(data.accessToken, data.boardId, data.memberUserId, data.role)
+      return { ok: true as const }
+    } catch {
+      return { ok: false as const }
+    }
+  })
+
+const removeBoardMemberServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: {
+    userId: string
+    accessToken: string
+    boardId: string
+    memberUserId: string
+  }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+    memberUserId: String(input.memberUserId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      await store.removeBoardMember(data.accessToken, data.boardId, data.memberUserId)
+      return { ok: true as const }
+    } catch {
+      return { ok: false as const }
+    }
+  })
+
+const leaveBoardServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: {
+    userId: string
+    accessToken: string
+    boardId: string
+  }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      await store.leaveBoard(data.accessToken, data.boardId, verifiedUser.id)
+      return { ok: true as const }
+    } catch {
+      return { ok: false as const }
+    }
+  })
+
+const deleteBoardServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: {
+    userId: string
+    accessToken: string
+    boardId: string
+  }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      await store.deleteBoard(data.accessToken, data.boardId)
+      return { ok: true as const }
+    } catch {
+      return { ok: false as const }
+    }
+  })
+
 export const Route = createFileRoute('/board/$boardId')({
   loader: () => seedNotes,
   component: BoardRoute,
@@ -242,6 +429,9 @@ function BoardRoute() {
     canEdit: false,
     isOwner: false,
   })
+  const [boardDetails, setBoardDetails] = useState<BoardDetails | null>(null)
+  const [boardTitleDraft, setBoardTitleDraft] = useState('')
+  const [boardMembers, setBoardMembers] = useState<BoardMemberSummary[]>([])
   const [activeInvites, setActiveInvites] = useState<BoardInviteSummary[]>([])
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -255,8 +445,14 @@ function BoardRoute() {
   const [conflictCount, setConflictCount] = useState(0)
   const [pendingConflictNotes, setPendingConflictNotes] = useState<Note[] | null>(null)
   const [isCreatingInvite, setIsCreatingInvite] = useState(false)
+  const [isRenamingBoard, setIsRenamingBoard] = useState(false)
+  const [isDeletingBoard, setIsDeletingBoard] = useState(false)
+  const [isLeavingBoard, setIsLeavingBoard] = useState(false)
+  const [memberActionUserId, setMemberActionUserId] = useState('')
+  const [boardMessage, setBoardMessage] = useState('')
   const [loadError, setLoadError] = useState('')
   const [boardRevision, setBoardRevision] = useState(0)
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null)
   const [realtimeStatus, setRealtimeStatus] = useState<
     'unconfigured' | 'connecting' | 'connected' | 'error'
   >('unconfigured')
@@ -322,6 +518,7 @@ function BoardRoute() {
       suppressNextSaveRef.current = true
       setNotes(latest.notes)
       setSyncState('saved')
+      setLastSyncAt(new Date())
     },
     [boardId, session]
   )
@@ -357,6 +554,7 @@ function BoardRoute() {
         setBoardRevision(result.revision)
         revisionRef.current = result.revision
         lastSyncedNotesRef.current = result.notes
+        setLastSyncAt(new Date())
         const accessResult = await loadBoardAccessServer({
           data: {
             userId: session.user.id,
@@ -366,6 +564,27 @@ function BoardRoute() {
         })
         if (accessResult.ok) {
           setBoardAccess(accessResult.access)
+        }
+        const detailsResult = await loadBoardDetailsServer({
+          data: {
+            userId: session.user.id,
+            accessToken: session.accessToken,
+            boardId,
+          },
+        })
+        if (detailsResult.ok && detailsResult.details) {
+          setBoardDetails(detailsResult.details)
+          setBoardTitleDraft(detailsResult.details.title)
+        }
+        const membersResult = await listBoardMembersServer({
+          data: {
+            userId: session.user.id,
+            accessToken: session.accessToken,
+            boardId,
+          },
+        })
+        if (membersResult.ok) {
+          setBoardMembers(membersResult.members)
         }
         if (accessResult.ok && accessResult.access.isOwner) {
           const invitesResult = await listInvitesServer({
@@ -432,6 +651,7 @@ function BoardRoute() {
           setBoardRevision(result.revision)
           revisionRef.current = result.revision
           lastSyncedNotesRef.current = notes
+          setLastSyncAt(new Date())
           return
         }
         if (result.code === 'conflict') {
@@ -574,6 +794,169 @@ function BoardRoute() {
     }
   }, [boardId, session, reloadLatestSnapshot, realtimeConfig])
 
+  const refreshMembers = useCallback(async () => {
+    if (!session) {
+      return
+    }
+    const membersResult = await listBoardMembersServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+      },
+    })
+    if (membersResult.ok) {
+      setBoardMembers(membersResult.members)
+    }
+  }, [boardId, session])
+
+  const renameBoard = async () => {
+    if (!session || !boardAccess.isOwner) {
+      return
+    }
+    const nextTitle = boardTitleDraft.trim()
+    if (!nextTitle) {
+      setBoardMessage('Board title cannot be empty.')
+      return
+    }
+    setIsRenamingBoard(true)
+    setBoardMessage('')
+    const result = await renameBoardServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+        title: nextTitle,
+      },
+    })
+    setIsRenamingBoard(false)
+    if (!result.ok) {
+      setBoardMessage(result.message || 'Could not rename board.')
+      return
+    }
+    setBoardDetails((current) =>
+      current
+        ? {
+            ...current,
+            title: nextTitle,
+          }
+        : current
+    )
+    setBoardMessage('Board title updated.')
+  }
+
+  const updateMemberRole = async (memberUserId: string, nextRole: 'editor' | 'viewer') => {
+    if (!session || !boardAccess.isOwner) {
+      return
+    }
+    setMemberActionUserId(memberUserId)
+    setBoardMessage('')
+    const result = await updateMemberRoleServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+        memberUserId,
+        role: nextRole,
+      },
+    })
+    setMemberActionUserId('')
+    if (!result.ok) {
+      setBoardMessage('Could not update member role.')
+      return
+    }
+    setBoardMembers((current) =>
+      current.map((member) =>
+        member.userId === memberUserId
+          ? {
+              ...member,
+              role: nextRole,
+            }
+          : member
+      )
+    )
+    setBoardMessage('Member role updated.')
+  }
+
+  const removeMember = async (memberUserId: string) => {
+    if (!session || !boardAccess.isOwner) {
+      return
+    }
+    const confirmRemove = window.confirm('Remove this member from the board?')
+    if (!confirmRemove) {
+      return
+    }
+    setMemberActionUserId(memberUserId)
+    setBoardMessage('')
+    const result = await removeBoardMemberServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+        memberUserId,
+      },
+    })
+    setMemberActionUserId('')
+    if (!result.ok) {
+      setBoardMessage('Could not remove member.')
+      return
+    }
+    setBoardMembers((current) => current.filter((member) => member.userId !== memberUserId))
+    setBoardMessage('Member removed.')
+  }
+
+  const leaveBoard = async () => {
+    if (!session || boardAccess.isOwner) {
+      return
+    }
+    const confirmLeave = window.confirm('Leave this board? You will lose access until re-invited.')
+    if (!confirmLeave) {
+      return
+    }
+    setIsLeavingBoard(true)
+    setBoardMessage('')
+    const result = await leaveBoardServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+      },
+    })
+    setIsLeavingBoard(false)
+    if (!result.ok) {
+      setBoardMessage('Could not leave board.')
+      return
+    }
+    await navigate({ to: '/boards' })
+  }
+
+  const deleteBoard = async () => {
+    if (!session || !boardAccess.isOwner) {
+      return
+    }
+    const titleToConfirm = boardDetails?.title || boardTitleDraft || boardId
+    const typed = window.prompt(`Type "${titleToConfirm}" to delete this board permanently.`)
+    if (typed !== titleToConfirm) {
+      setBoardMessage('Board delete canceled.')
+      return
+    }
+    setIsDeletingBoard(true)
+    setBoardMessage('')
+    const result = await deleteBoardServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+      },
+    })
+    setIsDeletingBoard(false)
+    if (!result.ok) {
+      setBoardMessage('Could not delete board.')
+      return
+    }
+    await navigate({ to: '/boards' })
+  }
+
   const createInvite = async () => {
     if (!session) {
       return
@@ -618,6 +1001,7 @@ function BoardRoute() {
           setActiveInvites(invitesResult.invites)
         }
       }
+      await refreshMembers()
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(url).catch(() => {
           setInviteMessage('Invite created. Copy the link manually below.')
@@ -711,7 +1095,7 @@ function BoardRoute() {
         notes={notes}
         onNotesChange={setNotes}
         syncState={syncState}
-        title={`Board ${boardId.slice(0, 8)}`}
+        title={boardDetails?.title || `Board ${boardId.slice(0, 8)}`}
         rightActions={
           <>
             <Link
@@ -720,30 +1104,40 @@ function BoardRoute() {
             >
               Boards
             </Link>
-            <select
-              value={inviteRole}
-              onChange={(event) =>
-                setInviteRole(event.target.value === 'viewer' ? 'viewer' : 'editor')
-              }
-              className="h-10 rounded-lg bg-slate-950 border border-slate-700 text-sm px-2"
-            >
-              <option value="editor">Invite editor</option>
-              <option value="viewer">Invite viewer</option>
-            </select>
-            <button
-              type="button"
-              onClick={() => void createInvite()}
-              disabled={isCreatingInvite}
-              className="inline-flex items-center px-4 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
-            >
-              {isCreatingInvite ? 'Creating...' : 'Create invite'}
-            </button>
+            {boardAccess.isOwner ? (
+              <>
+                <select
+                  value={inviteRole}
+                  onChange={(event) =>
+                    setInviteRole(event.target.value === 'viewer' ? 'viewer' : 'editor')
+                  }
+                  className="h-10 rounded-lg bg-slate-950 border border-slate-700 text-sm px-2"
+                >
+                  <option value="editor">Invite editor</option>
+                  <option value="viewer">Invite viewer</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void createInvite()}
+                  disabled={isCreatingInvite}
+                  className="inline-flex items-center px-4 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
+                >
+                  {isCreatingInvite ? 'Creating...' : 'Create invite'}
+                </button>
+              </>
+            ) : null}
             <span className="text-xs text-slate-400">Rev {boardRevision}</span>
             <span className="text-xs text-slate-400">
               Role: <span className="text-slate-200">{boardAccess.role}</span>
             </span>
             <span className="text-xs text-slate-400">
               Online: <span className="text-slate-200">{presenceUsers.length}</span>
+            </span>
+            <span className="text-xs text-slate-400">
+              Last sync:{' '}
+              <span className="text-slate-200">
+                {lastSyncAt ? lastSyncAt.toLocaleTimeString() : 'Never'}
+              </span>
             </span>
             <span className="text-xs text-slate-400">
               Conflicts: <span className="text-slate-200">{conflictCount}</span>
@@ -765,10 +1159,10 @@ function BoardRoute() {
               {realtimeStatus === 'connected'
                 ? 'Live'
                 : realtimeStatus === 'connecting'
-                  ? 'Live connecting...'
+                  ? 'Reconnecting'
                   : realtimeStatus === 'error'
-                    ? 'Live offline'
-                    : 'Live not configured'}
+                    ? 'Offline'
+                    : 'Unavailable'}
             </span>
             <button
               type="button"
@@ -815,6 +1209,126 @@ function BoardRoute() {
           </div>
         </div>
       ) : null}
+      <div className="px-6 pb-6 grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-4">
+          <h3 className="text-sm font-semibold text-slate-100">Board Settings</h3>
+          <p className="text-xs text-slate-400 mt-1">
+            Manage board title and access controls.
+          </p>
+          {boardAccess.isOwner ? (
+            <div className="mt-3 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <input
+                  value={boardTitleDraft}
+                  onChange={(event) => setBoardTitleDraft(event.target.value)}
+                  className="h-10 min-w-72 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-slate-500"
+                  placeholder="Board title"
+                />
+                <button
+                  type="button"
+                  onClick={() => void renameBoard()}
+                  disabled={isRenamingBoard}
+                  className="h-10 rounded-lg border border-slate-600 px-3 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {isRenamingBoard ? 'Saving...' : 'Rename'}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => void deleteBoard()}
+                disabled={isDeletingBoard}
+                className="h-10 rounded-lg border border-rose-600/70 px-3 text-sm text-rose-300 hover:bg-rose-950/40 disabled:opacity-60"
+              >
+                {isDeletingBoard ? 'Deleting...' : 'Delete board'}
+              </button>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => void leaveBoard()}
+                disabled={isLeavingBoard}
+                className="h-10 rounded-lg border border-amber-600/70 px-3 text-sm text-amber-300 hover:bg-amber-950/30 disabled:opacity-60"
+              >
+                {isLeavingBoard ? 'Leaving...' : 'Leave board'}
+              </button>
+            </div>
+          )}
+        </section>
+        <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-4">
+          <h3 className="text-sm font-semibold text-slate-100">Members</h3>
+          <p className="text-xs text-slate-400 mt-1">
+            {boardMembers.length} member{boardMembers.length === 1 ? '' : 's'}
+          </p>
+          <div className="mt-3 space-y-2">
+            {boardMembers.length === 0 ? (
+              <p className="text-xs text-slate-500">No members found.</p>
+            ) : (
+              boardMembers.map((member) => {
+                const isCurrentUser = member.userId === session?.user.id
+                const isOwnerRow = member.role === 'owner'
+                const canManageMember =
+                  boardAccess.isOwner && !isOwnerRow && member.userId !== session?.user.id
+                return (
+                  <div
+                    key={member.userId}
+                    className="rounded border border-slate-700 bg-slate-950/50 px-3 py-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs text-slate-200">
+                          {member.userId}
+                          {isCurrentUser ? ' (you)' : ''}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Added {new Date(member.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      {canManageMember ? (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={member.role}
+                            onChange={(event) =>
+                              void updateMemberRole(
+                                member.userId,
+                                event.target.value === 'viewer' ? 'viewer' : 'editor'
+                              )
+                            }
+                            disabled={memberActionUserId === member.userId}
+                            className="h-8 rounded border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200"
+                          >
+                            <option value="editor">editor</option>
+                            <option value="viewer">viewer</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => void removeMember(member.userId)}
+                            disabled={memberActionUserId === member.userId}
+                            className="h-8 rounded border border-rose-600/70 px-2 text-xs text-rose-300 hover:bg-rose-950/40 disabled:opacity-60"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <span
+                          className={`inline-flex h-7 items-center rounded px-2 text-xs font-medium ${roleBadgeClassName(
+                            member.role
+                          )}`}
+                        >
+                          {member.role}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </section>
+      </div>
+      {boardMessage ? (
+        <div className="px-6 pb-6 text-sm text-amber-300">{boardMessage}</div>
+      ) : null}
       {presenceUsers.length > 0 ? (
         <div className="px-6 pb-6 text-xs text-slate-400">
           Active: {presenceUsers.map((user) => user.label).join(', ')}
@@ -846,4 +1360,14 @@ function BoardRoute() {
       ) : null}
     </div>
   )
+}
+
+function roleBadgeClassName(role: 'owner' | 'editor' | 'viewer') {
+  if (role === 'owner') {
+    return 'border border-amber-500/50 bg-amber-500/10 text-amber-200'
+  }
+  if (role === 'editor') {
+    return 'border border-sky-500/50 bg-sky-500/10 text-sky-200'
+  }
+  return 'border border-slate-500/50 bg-slate-500/10 text-slate-200'
 }

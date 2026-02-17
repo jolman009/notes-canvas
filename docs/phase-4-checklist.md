@@ -9,22 +9,22 @@ Phase 4 covers:
 ## TODO
 - [ ] Finalize board governance flows:
   - [ ] Add ownership transfer flow (explicit confirmation + safety checks)
-  - [ ] Add owner UI for member role changes (`editor` <-> `viewer`)
-  - [ ] Add owner flow to remove members from a board
-  - [ ] Add self-service "Leave board" flow for non-owners
+  - [x] Add owner UI for member role changes (`editor` <-> `viewer`)
+  - [x] Add owner flow to remove members from a board
+  - [x] Add self-service "Leave board" flow for non-owners
 - [ ] Harden invite lifecycle:
   - [ ] Add default invite expiration policy (for example: 7 days)
   - [ ] Add reusable vs one-time invite option (owner-controlled)
   - [ ] Add invite audit fields (`accepted_by`, `accepted_at`) if needed
   - [ ] Add cleanup path for expired/revoked invites
 - [ ] Improve board management UX:
-  - [ ] Rename board from board header/settings
-  - [ ] Add archive/delete board flow with confirmation guardrails
+  - [x] Rename board from board header/settings
+  - [x] Add archive/delete board flow with confirmation guardrails
   - [ ] Add clear empty/loading/error states for board list and board page
-  - [ ] Add member list panel with role badges and ownership indicator
+  - [x] Add member list panel with role badges and ownership indicator
 - [ ] Improve realtime UX polish:
-  - [ ] Add clearer sync status states (`Live`, `Reconnecting`, `Offline`)
-  - [ ] Show last successful sync timestamp in board UI
+  - [x] Add clearer sync status states (`Live`, `Reconnecting`, `Offline`)
+  - [x] Show last successful sync timestamp in board UI
   - [ ] Add clearer conflict resolution affordances and retry messaging
   - [ ] Add presence timeout cleanup for stale users
 - [ ] Add performance and reliability safeguards:
@@ -58,7 +58,8 @@ Phase 4 covers:
 - [ ] Rollout and rollback runbooks are documented and tested.
 
 ## Phase 4 Artifacts (Planned)
-- `supabase/phase4_*.sql`
+- `supabase/phase4_governance_policies.sql`
+- `supabase/phase4_governance_policy_tests.sql`
 - `src/routes/board.$boardId.tsx`
 - `src/routes/boards.tsx`
 - `src/server/board-store.ts`

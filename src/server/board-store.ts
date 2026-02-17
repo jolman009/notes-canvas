@@ -16,6 +16,20 @@ type BoardSummary = {
   updatedAt: string
 }
 
+export type BoardDetails = {
+  id: string
+  title: string
+  ownerUserId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type BoardMemberSummary = {
+  userId: string
+  role: 'owner' | 'editor' | 'viewer'
+  createdAt: string
+}
+
 export type InviteAcceptResult = {
   boardId: string
   status: 'joined' | 'already_member'
@@ -71,6 +85,40 @@ export async function listBoards(accessToken: string, userId: string) {
     })) as BoardSummary[]
 }
 
+export async function getBoardDetails(
+  accessToken: string,
+  boardId: string
+): Promise<BoardDetails> {
+  const rows = await restFetch<
+    Array<{
+      id: string
+      title: string
+      owner_user_id: string
+      created_at: string
+      updated_at: string
+    }>
+  >(
+    `/rest/v1/boards?id=eq.${encodeURIComponent(
+      boardId
+    )}&select=id,title,owner_user_id,created_at,updated_at&limit=1`,
+    {
+      method: 'GET',
+      accessToken,
+    }
+  )
+  const board = rows[0]
+  if (!board) {
+    throw new Error('Board not found.')
+  }
+  return {
+    id: board.id,
+    title: board.title,
+    ownerUserId: board.owner_user_id,
+    createdAt: board.created_at,
+    updatedAt: board.updated_at,
+  }
+}
+
 export async function getBoardAccess(
   accessToken: string,
   boardId: string,
@@ -93,6 +141,26 @@ export async function getBoardAccess(
   }
 }
 
+export async function listBoardMembers(
+  accessToken: string,
+  boardId: string
+): Promise<BoardMemberSummary[]> {
+  const rows = await restFetch<Array<{ user_id: string; role: string; created_at: string }>>(
+    `/rest/v1/board_members?board_id=eq.${encodeURIComponent(
+      boardId
+    )}&select=user_id,role,created_at&order=created_at.asc`,
+    {
+      method: 'GET',
+      accessToken,
+    }
+  )
+  return rows.map((row) => ({
+    userId: row.user_id,
+    role: normalizeRole(row.role),
+    createdAt: row.created_at,
+  }))
+}
+
 export async function createBoard(accessToken: string, ownerUserId: string, title: string) {
   const rows = await restFetch<Array<{ id: string }>>('/rest/v1/boards?select=id', {
     method: 'POST',
@@ -111,6 +179,33 @@ export async function createBoard(accessToken: string, ownerUserId: string, titl
     throw new Error('Board creation failed.')
   }
   return boardId
+}
+
+export async function renameBoard(accessToken: string, boardId: string, title: string) {
+  const rows = await restFetch<Array<{ id: string; title: string }>>(
+    `/rest/v1/boards?id=eq.${encodeURIComponent(boardId)}&select=id,title`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: {
+        title: title.trim() || 'Untitled Board',
+      },
+      prefer: 'return=representation',
+    }
+  )
+  if (!rows[0]) {
+    throw new Error('Board rename failed.')
+  }
+}
+
+export async function deleteBoard(accessToken: string, boardId: string) {
+  await restFetch<Array<{ id: string }>>(
+    `/rest/v1/boards?id=eq.${encodeURIComponent(boardId)}&select=id`,
+    {
+      method: 'DELETE',
+      accessToken,
+    }
+  )
 }
 
 export async function getBoardNotes(accessToken: string, boardId: string) {
@@ -274,6 +369,46 @@ export async function revokeInvite(accessToken: string, boardId: string, inviteI
       accessToken,
     }
   )
+}
+
+export async function updateBoardMemberRole(
+  accessToken: string,
+  boardId: string,
+  memberUserId: string,
+  role: 'editor' | 'viewer'
+) {
+  const rows = await restFetch<Array<{ user_id: string }>>(
+    `/rest/v1/board_members?board_id=eq.${encodeURIComponent(
+      boardId
+    )}&user_id=eq.${encodeURIComponent(memberUserId)}&select=user_id`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: {
+        role,
+      },
+      prefer: 'return=representation',
+    }
+  )
+  if (!rows[0]) {
+    throw new Error('Member role update failed.')
+  }
+}
+
+export async function removeBoardMember(accessToken: string, boardId: string, memberUserId: string) {
+  await restFetch<Array<{ user_id: string }>>(
+    `/rest/v1/board_members?board_id=eq.${encodeURIComponent(
+      boardId
+    )}&user_id=eq.${encodeURIComponent(memberUserId)}&select=user_id`,
+    {
+      method: 'DELETE',
+      accessToken,
+    }
+  )
+}
+
+export async function leaveBoard(accessToken: string, boardId: string, userId: string) {
+  await removeBoardMember(accessToken, boardId, userId)
 }
 
 export async function acceptInvite(
