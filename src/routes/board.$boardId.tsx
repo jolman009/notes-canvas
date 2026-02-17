@@ -499,6 +499,7 @@ function BoardRoute() {
   const [inviteLink, setInviteLink] = useState('')
   const [inviteMessage, setInviteMessage] = useState('')
   const [collabMessage, setCollabMessage] = useState('')
+  const [collabMessageKind, setCollabMessageKind] = useState<'info' | 'conflict'>('info')
   const [saveErrorMessage, setSaveErrorMessage] = useState('')
   const [presenceUsers, setPresenceUsers] = useState<Array<{ id: string; label: string }>>([])
   const [syncFailureCount, setSyncFailureCount] = useState(0)
@@ -576,6 +577,7 @@ function BoardRoute() {
       setBoardRevision(latest.revision)
       lastSyncedNotesRef.current = latest.notes
       if (showCollaboratorNotice && !isSelfUpdate(latest.updatedBy, session.user.id)) {
+        setCollabMessageKind('info')
         setCollabMessage('Board updated by a collaborator. Latest changes were loaded.')
       }
       suppressNextSaveRef.current = true
@@ -734,7 +736,10 @@ function BoardRoute() {
         if (result.code === 'conflict') {
           setConflictCount((count) => count + 1)
           setPendingConflictNotes(pendingSaveNotesRef.current)
-          setCollabMessage(result.message)
+          setCollabMessageKind('conflict')
+          setCollabMessage(
+            'Save conflict detected. Latest board was loaded. Choose whether to keep your draft or keep the latest board.'
+          )
           await reloadLatestSnapshot(false)
           return
         }
@@ -1139,6 +1144,7 @@ function BoardRoute() {
     if (!session || !pendingConflictNotes || !boardAccess.canEdit) {
       return
     }
+    setCollabMessageKind('conflict')
     setCollabMessage('Re-applying your draft...')
     setSyncState('saving')
     const result = await saveBoardNotesServer({
@@ -1157,13 +1163,29 @@ function BoardRoute() {
       setBoardRevision(result.revision)
       revisionRef.current = result.revision
       setPendingConflictNotes(null)
+      setCollabMessageKind('info')
       setCollabMessage('Your draft was restored and saved.')
       setSyncState('saved')
       return
     }
     setSyncFailureCount((count) => count + 1)
     setSaveErrorMessage('Could not re-apply your draft. Latest board remains loaded.')
+    setCollabMessageKind('conflict')
+    setCollabMessage('Retry failed. You can try "Keep mine" again or keep the latest board.')
     setSyncState('error')
+  }
+
+  const keepLatestBoard = () => {
+    setPendingConflictNotes(null)
+    setCollabMessageKind('info')
+    setCollabMessage('Keeping the latest board version.')
+  }
+
+  const dismissCollabMessage = () => {
+    setCollabMessage('')
+    if (!pendingConflictNotes) {
+      setCollabMessageKind('info')
+    }
   }
 
   const revokeInvite = async (inviteId: string) => {
@@ -1570,17 +1592,41 @@ function BoardRoute() {
         </div>
       ) : null}
       {collabMessage ? (
-        <div className="fixed left-4 bottom-4 z-50 max-w-md rounded-lg border border-sky-600/60 bg-slate-900/95 px-4 py-3 text-sm text-sky-200 shadow-2xl">
+        <div
+          className={`fixed left-4 bottom-4 z-50 max-w-md rounded-lg px-4 py-3 text-sm shadow-2xl ${
+            collabMessageKind === 'conflict'
+              ? 'border border-amber-600/70 bg-slate-900/95 text-amber-200'
+              : 'border border-sky-600/60 bg-slate-900/95 text-sky-200'
+          }`}
+        >
           <p>{collabMessage}</p>
-          {pendingConflictNotes && boardAccess.canEdit ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {pendingConflictNotes && boardAccess.canEdit ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void retryKeepMine()}
+                  className="rounded border border-amber-500/70 px-3 py-1 text-xs text-amber-200 hover:bg-amber-950/30"
+                >
+                  Keep mine
+                </button>
+                <button
+                  type="button"
+                  onClick={keepLatestBoard}
+                  className="rounded border border-slate-500/70 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                >
+                  Keep latest
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
-              onClick={() => void retryKeepMine()}
-              className="mt-2 rounded border border-sky-500/70 px-3 py-1 text-xs text-sky-200 hover:bg-sky-950/30"
+              onClick={dismissCollabMessage}
+              className="rounded border border-slate-500/70 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
             >
-              Keep mine
+              Dismiss
             </button>
-          ) : null}
+          </div>
         </div>
       ) : null}
       {saveErrorMessage ? (

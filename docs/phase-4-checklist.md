@@ -25,7 +25,7 @@ Phase 4 covers:
 - [ ] Improve realtime UX polish:
   - [x] Add clearer sync status states (`Live`, `Reconnecting`, `Offline`)
   - [x] Show last successful sync timestamp in board UI
-  - [ ] Add clearer conflict resolution affordances and retry messaging
+  - [x] Add clearer conflict resolution affordances and retry messaging
   - [ ] Add presence timeout cleanup for stale users
 - [ ] Add performance and reliability safeguards:
   - [ ] Tune save throttling/debouncing under fast edit bursts
