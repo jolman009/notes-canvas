@@ -413,6 +413,36 @@ const deleteBoardServer = createServerFn({ method: 'POST' })
     }
   })
 
+const transferOwnershipServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: {
+    userId: string
+    accessToken: string
+    boardId: string
+    newOwnerUserId: string
+  }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+    newOwnerUserId: String(input.newOwnerUserId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const, message: 'Invalid session.' }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      await store.transferBoardOwnership(data.accessToken, data.boardId, data.newOwnerUserId)
+      return { ok: true as const, message: '' }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Ownership transfer failed.',
+      }
+    }
+  })
+
 export const Route = createFileRoute('/board/$boardId')({
   loader: () => seedNotes,
   component: BoardRoute,
@@ -448,6 +478,7 @@ function BoardRoute() {
   const [isRenamingBoard, setIsRenamingBoard] = useState(false)
   const [isDeletingBoard, setIsDeletingBoard] = useState(false)
   const [isLeavingBoard, setIsLeavingBoard] = useState(false)
+  const [isTransferringOwnership, setIsTransferringOwnership] = useState(false)
   const [memberActionUserId, setMemberActionUserId] = useState('')
   const [boardMessage, setBoardMessage] = useState('')
   const [loadError, setLoadError] = useState('')
@@ -523,6 +554,60 @@ function BoardRoute() {
     [boardId, session]
   )
 
+  const refreshBoardMeta = useCallback(async () => {
+    if (!session) {
+      return
+    }
+    const accessResult = await loadBoardAccessServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+      },
+    })
+    if (accessResult.ok) {
+      setBoardAccess(accessResult.access)
+    }
+
+    const detailsResult = await loadBoardDetailsServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+      },
+    })
+    if (detailsResult.ok && detailsResult.details) {
+      setBoardDetails(detailsResult.details)
+      setBoardTitleDraft(detailsResult.details.title)
+    }
+
+    const membersResult = await listBoardMembersServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+      },
+    })
+    if (membersResult.ok) {
+      setBoardMembers(membersResult.members)
+    }
+
+    if (accessResult.ok && accessResult.access.isOwner) {
+      const invitesResult = await listInvitesServer({
+        data: {
+          userId: session.user.id,
+          accessToken: session.accessToken,
+          boardId,
+        },
+      })
+      if (invitesResult.ok) {
+        setActiveInvites(invitesResult.invites)
+      }
+    } else {
+      setActiveInvites([])
+    }
+  }, [boardId, session])
+
   useEffect(() => {
     if (!session || typeof window === 'undefined') {
       return
@@ -555,56 +640,14 @@ function BoardRoute() {
         revisionRef.current = result.revision
         lastSyncedNotesRef.current = result.notes
         setLastSyncAt(new Date())
-        const accessResult = await loadBoardAccessServer({
-          data: {
-            userId: session.user.id,
-            accessToken: session.accessToken,
-            boardId,
-          },
-        })
-        if (accessResult.ok) {
-          setBoardAccess(accessResult.access)
-        }
-        const detailsResult = await loadBoardDetailsServer({
-          data: {
-            userId: session.user.id,
-            accessToken: session.accessToken,
-            boardId,
-          },
-        })
-        if (detailsResult.ok && detailsResult.details) {
-          setBoardDetails(detailsResult.details)
-          setBoardTitleDraft(detailsResult.details.title)
-        }
-        const membersResult = await listBoardMembersServer({
-          data: {
-            userId: session.user.id,
-            accessToken: session.accessToken,
-            boardId,
-          },
-        })
-        if (membersResult.ok) {
-          setBoardMembers(membersResult.members)
-        }
-        if (accessResult.ok && accessResult.access.isOwner) {
-          const invitesResult = await listInvitesServer({
-            data: {
-              userId: session.user.id,
-              accessToken: session.accessToken,
-              boardId,
-            },
-          })
-          if (invitesResult.ok) {
-            setActiveInvites(invitesResult.invites)
-          }
-        }
+        await refreshBoardMeta()
       } else {
         setLoadError('You do not have access to this board.')
         await navigate({ to: '/boards' })
       }
       hasInitializedRef.current = true
     })()
-  }, [session, boardId, cacheKey])
+  }, [session, boardId, cacheKey, refreshBoardMeta])
 
   useEffect(() => {
     if (!session || typeof window === 'undefined') {
@@ -903,6 +946,37 @@ function BoardRoute() {
     }
     setBoardMembers((current) => current.filter((member) => member.userId !== memberUserId))
     setBoardMessage('Member removed.')
+  }
+
+  const transferOwnership = async (memberUserId: string) => {
+    if (!session || !boardAccess.isOwner) {
+      return
+    }
+    const confirmTransfer = window.confirm(
+      'Transfer ownership to this member? You will become editor.'
+    )
+    if (!confirmTransfer) {
+      return
+    }
+    setIsTransferringOwnership(true)
+    setMemberActionUserId(memberUserId)
+    setBoardMessage('')
+    const result = await transferOwnershipServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+        newOwnerUserId: memberUserId,
+      },
+    })
+    setIsTransferringOwnership(false)
+    setMemberActionUserId('')
+    if (!result.ok) {
+      setBoardMessage(result.message || 'Ownership transfer failed.')
+      return
+    }
+    await refreshBoardMeta()
+    setBoardMessage('Ownership transferred successfully.')
   }
 
   const leaveBoard = async () => {
@@ -1286,6 +1360,16 @@ function BoardRoute() {
                       </div>
                       {canManageMember ? (
                         <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void transferOwnership(member.userId)}
+                            disabled={
+                              memberActionUserId === member.userId || isTransferringOwnership
+                            }
+                            className="h-8 rounded border border-amber-600/70 px-2 text-xs text-amber-300 hover:bg-amber-950/30 disabled:opacity-60"
+                          >
+                            Make owner
+                          </button>
                           <select
                             value={member.role}
                             onChange={(event) =>
@@ -1294,7 +1378,9 @@ function BoardRoute() {
                                 event.target.value === 'viewer' ? 'viewer' : 'editor'
                               )
                             }
-                            disabled={memberActionUserId === member.userId}
+                            disabled={
+                              memberActionUserId === member.userId || isTransferringOwnership
+                            }
                             className="h-8 rounded border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200"
                           >
                             <option value="editor">editor</option>
@@ -1303,7 +1389,9 @@ function BoardRoute() {
                           <button
                             type="button"
                             onClick={() => void removeMember(member.userId)}
-                            disabled={memberActionUserId === member.userId}
+                            disabled={
+                              memberActionUserId === member.userId || isTransferringOwnership
+                            }
                             className="h-8 rounded border border-rose-600/70 px-2 text-xs text-rose-300 hover:bg-rose-950/40 disabled:opacity-60"
                           >
                             Remove

@@ -8,7 +8,7 @@ Phase 4 covers:
 
 ## TODO
 - [ ] Finalize board governance flows:
-  - [ ] Add ownership transfer flow (explicit confirmation + safety checks)
+  - [x] Add ownership transfer flow (explicit confirmation + safety checks)
   - [x] Add owner UI for member role changes (`editor` <-> `viewer`)
   - [x] Add owner flow to remove members from a board
   - [x] Add self-service "Leave board" flow for non-owners
@@ -60,6 +60,7 @@ Phase 4 covers:
 ## Phase 4 Artifacts (Planned)
 - `supabase/phase4_governance_policies.sql`
 - `supabase/phase4_governance_policy_tests.sql`
+- `supabase/phase4_ownership_transfer.sql`
 - `src/routes/board.$boardId.tsx`
 - `src/routes/boards.tsx`
 - `src/server/board-store.ts`

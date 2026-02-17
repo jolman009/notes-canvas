@@ -30,6 +30,11 @@ export type BoardMemberSummary = {
   createdAt: string
 }
 
+export type BoardOwnershipTransferResult = {
+  boardId: string
+  newOwnerUserId: string
+}
+
 export type InviteAcceptResult = {
   boardId: string
   status: 'joined' | 'already_member'
@@ -409,6 +414,51 @@ export async function removeBoardMember(accessToken: string, boardId: string, me
 
 export async function leaveBoard(accessToken: string, boardId: string, userId: string) {
   await removeBoardMember(accessToken, boardId, userId)
+}
+
+export async function transferBoardOwnership(
+  accessToken: string,
+  boardId: string,
+  newOwnerUserId: string
+): Promise<BoardOwnershipTransferResult> {
+  try {
+    const rows = await restFetch<Array<{ board_id: string; new_owner_user_id: string }>>(
+      '/rest/v1/rpc/transfer_board_ownership',
+      {
+        method: 'POST',
+        accessToken,
+        body: {
+          target_board_id: boardId,
+          new_owner_user_id: newOwnerUserId,
+        },
+      }
+    )
+    const result = rows[0]
+    if (!result?.board_id || !result.new_owner_user_id) {
+      throw new Error('OWNERSHIP_TRANSFER_FAILED')
+    }
+    return {
+      boardId: result.board_id,
+      newOwnerUserId: result.new_owner_user_id,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message.includes('Could not find the function public.transfer_board_ownership')) {
+      throw new Error(
+        'Ownership transfer backend not installed. Run supabase/phase4_ownership_transfer.sql in Supabase SQL Editor.'
+      )
+    }
+    if (message.includes('NEW_OWNER_MUST_BE_MEMBER')) {
+      throw new Error('New owner must already be a board member.')
+    }
+    if (message.includes('ONLY_OWNER_CAN_TRANSFER')) {
+      throw new Error('Only the current owner can transfer ownership.')
+    }
+    if (message.includes('NEW_OWNER_SAME')) {
+      throw new Error('Selected user is already the owner.')
+    }
+    throw error instanceof Error ? error : new Error('OWNERSHIP_TRANSFER_FAILED')
+  }
 }
 
 export async function acceptInvite(

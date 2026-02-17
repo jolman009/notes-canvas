@@ -113,4 +113,43 @@ describe('board-store integration flows', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('transfers ownership through RPC', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, [{ board_id: 'board-123', new_owner_user_id: 'user-new-owner' }])
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = await loadStore()
+
+    await expect(
+      store.transferBoardOwnership('access-token', 'board-123', 'user-new-owner')
+    ).resolves.toMatchObject({
+      boardId: 'board-123',
+      newOwnerUserId: 'user-new-owner',
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const firstCallPath = String(fetchMock.mock.calls[0]?.[0] || '')
+    expect(firstCallPath).toContain('/rest/v1/rpc/transfer_board_ownership')
+  })
+
+  it('returns helpful message when transfer RPC is missing', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(404, {
+          message: 'Could not find the function public.transfer_board_ownership',
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = await loadStore()
+
+    await expect(
+      store.transferBoardOwnership('access-token', 'board-123', 'user-new-owner')
+    ).rejects.toThrow('Ownership transfer backend not installed')
+  })
 })
