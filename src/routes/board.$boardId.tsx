@@ -17,7 +17,12 @@ type BoardInviteSummary = {
   id: string
   token: string
   role: 'editor' | 'viewer'
+  isReusable: boolean
+  acceptedCount: number
+  lastAcceptedBy: string | null
+  lastAcceptedAt: string | null
   expiresAt: string
+  revokedAt: string | null
   createdAt: string
 }
 
@@ -138,11 +143,13 @@ const createInviteServer = createServerFn({ method: 'POST' })
     accessToken: string
     boardId: string
     role: 'editor' | 'viewer'
+    mode: 'one_time' | 'reusable'
   }) => ({
     userId: String(input.userId || '').trim(),
     accessToken: String(input.accessToken || ''),
     boardId: String(input.boardId || '').trim(),
     role: input.role === 'viewer' ? 'viewer' : 'editor',
+    mode: input.mode === 'reusable' ? 'reusable' : 'one_time',
   }))
   .handler(async ({ data }) => {
     const auth = await import('@/server/supabase-auth')
@@ -158,7 +165,8 @@ const createInviteServer = createServerFn({ method: 'POST' })
         data.boardId,
         data.role,
         expiresAt,
-        verifiedUser.id
+        verifiedUser.id,
+        data.mode === 'reusable'
       )
       return { ok: true as const, inviteToken, message: '' }
     } catch (error) {
@@ -237,6 +245,27 @@ const revokeInviteServer = createServerFn({ method: 'POST' })
       return { ok: true as const }
     } catch {
       return { ok: false as const }
+    }
+  })
+
+const cleanupInvitesServer = createServerFn({ method: 'POST' })
+  .inputValidator((input: { userId: string; accessToken: string; boardId: string }) => ({
+    userId: String(input.userId || '').trim(),
+    accessToken: String(input.accessToken || ''),
+    boardId: String(input.boardId || '').trim(),
+  }))
+  .handler(async ({ data }) => {
+    const auth = await import('@/server/supabase-auth')
+    const verifiedUser = await auth.verifySupabaseAccessToken(data.accessToken)
+    if (!verifiedUser || verifiedUser.id !== data.userId) {
+      return { ok: false as const, removed: 0 }
+    }
+    try {
+      const store = await import('@/server/board-store')
+      const removed = await store.cleanupInvites(data.accessToken, data.boardId)
+      return { ok: true as const, removed }
+    } catch {
+      return { ok: false as const, removed: 0 }
     }
   })
 
@@ -466,6 +495,7 @@ function BoardRoute() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor')
+  const [inviteMode, setInviteMode] = useState<'one_time' | 'reusable'>('one_time')
   const [inviteLink, setInviteLink] = useState('')
   const [inviteMessage, setInviteMessage] = useState('')
   const [collabMessage, setCollabMessage] = useState('')
@@ -475,6 +505,7 @@ function BoardRoute() {
   const [conflictCount, setConflictCount] = useState(0)
   const [pendingConflictNotes, setPendingConflictNotes] = useState<Note[] | null>(null)
   const [isCreatingInvite, setIsCreatingInvite] = useState(false)
+  const [isCleaningInvites, setIsCleaningInvites] = useState(false)
   const [isRenamingBoard, setIsRenamingBoard] = useState(false)
   const [isDeletingBoard, setIsDeletingBoard] = useState(false)
   const [isLeavingBoard, setIsLeavingBoard] = useState(false)
@@ -1045,6 +1076,7 @@ function BoardRoute() {
           accessToken: session.accessToken,
           boardId,
           role: inviteRole,
+          mode: inviteMode,
         },
       })
       if (!result.ok) {
@@ -1062,7 +1094,11 @@ function BoardRoute() {
       const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
       const url = `${baseUrl}/invite/${result.inviteToken}`
       setInviteLink(url)
-      setInviteMessage('Invite created. Link copied to clipboard.')
+      setInviteMessage(
+        inviteMode === 'reusable'
+          ? 'Reusable invite created. Link copied to clipboard.'
+          : 'One-time invite created. Link copied to clipboard.'
+      )
       if (boardAccess.isOwner) {
         const invitesResult = await listInvitesServer({
           data: {
@@ -1147,6 +1183,36 @@ function BoardRoute() {
     setInviteMessage('Invite revoked.')
   }
 
+  const cleanupInvites = async () => {
+    if (!session || !boardAccess.isOwner) {
+      return
+    }
+    setIsCleaningInvites(true)
+    const result = await cleanupInvitesServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+      },
+    })
+    setIsCleaningInvites(false)
+    if (!result.ok) {
+      setInviteMessage('Could not clean invites.')
+      return
+    }
+    const invitesResult = await listInvitesServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+      },
+    })
+    if (invitesResult.ok) {
+      setActiveInvites(invitesResult.invites)
+    }
+    setInviteMessage(`Invite cleanup complete (${result.removed} removed).`)
+  }
+
   if (isCheckingAuth) {
     return (
       <main className="h-[calc(100vh-4rem)] bg-slate-950 text-slate-100 flex items-center justify-center">
@@ -1189,6 +1255,16 @@ function BoardRoute() {
                 >
                   <option value="editor">Invite editor</option>
                   <option value="viewer">Invite viewer</option>
+                </select>
+                <select
+                  value={inviteMode}
+                  onChange={(event) =>
+                    setInviteMode(event.target.value === 'reusable' ? 'reusable' : 'one_time')
+                  }
+                  className="h-10 rounded-lg bg-slate-950 border border-slate-700 text-sm px-2"
+                >
+                  <option value="one_time">One-time link</option>
+                  <option value="reusable">Reusable link</option>
                 </select>
                 <button
                   type="button"
@@ -1260,7 +1336,17 @@ function BoardRoute() {
       {boardAccess.isOwner && activeInvites.length > 0 ? (
         <div className="px-6 pb-6">
           <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3">
-            <p className="text-sm font-medium text-slate-200 mb-2">Active Invites</p>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-slate-200">Active Invites</p>
+              <button
+                type="button"
+                onClick={() => void cleanupInvites()}
+                disabled={isCleaningInvites}
+                className="rounded border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-60"
+              >
+                {isCleaningInvites ? 'Cleaning...' : 'Cleanup expired/revoked'}
+              </button>
+            </div>
             <div className="flex flex-col gap-2">
               {activeInvites.map((invite) => (
                 <div
@@ -1268,7 +1354,8 @@ function BoardRoute() {
                   className="flex items-center justify-between gap-3 rounded border border-slate-700 px-3 py-2 text-xs text-slate-300"
                 >
                   <span className="truncate">
-                    {invite.role} | expires {new Date(invite.expiresAt).toLocaleString()}
+                    {invite.role} | {invite.isReusable ? 'reusable' : 'one-time'} | uses{' '}
+                    {invite.acceptedCount} | expires {new Date(invite.expiresAt).toLocaleString()}
                   </span>
                   <button
                     type="button"

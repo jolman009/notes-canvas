@@ -50,7 +50,12 @@ export type BoardInviteSummary = {
   id: string
   token: string
   role: 'editor' | 'viewer'
+  isReusable: boolean
+  acceptedCount: number
+  lastAcceptedBy: string | null
+  lastAcceptedAt: string | null
   expiresAt: string
+  revokedAt: string | null
   createdAt: string
 }
 
@@ -311,7 +316,8 @@ export async function createInvite(
   boardId: string,
   role: 'editor' | 'viewer',
   expiresAt: string,
-  createdBy: string
+  createdBy: string,
+  isReusable: boolean
 ) {
   const token = crypto.randomUUID()
   const rows = await restFetch<Array<{ token: string }>>('/rest/v1/board_invites?select=token', {
@@ -324,6 +330,7 @@ export async function createInvite(
         role,
         expires_at: expiresAt,
         created_by: createdBy,
+        is_reusable: isReusable,
       },
     ],
     prefer: 'return=representation',
@@ -343,13 +350,20 @@ export async function listInvites(accessToken: string, boardId: string): Promise
       id: string
       token: string
       role: string
+      is_reusable: boolean | null
+      accepted_count: number | null
+      last_accepted_by: string | null
+      last_accepted_at: string | null
       expires_at: string
+      revoked_at: string | null
       created_at: string
     }>
   >(
     `/rest/v1/board_invites?board_id=eq.${encodeURIComponent(
       boardId
-    )}&select=id,token,role,expires_at,created_at&order=created_at.desc`,
+    )}&revoked_at=is.null&expires_at=gt.${encodeURIComponent(
+      new Date().toISOString()
+    )}&select=id,token,role,is_reusable,accepted_count,last_accepted_by,last_accepted_at,expires_at,revoked_at,created_at&order=created_at.desc`,
     {
       method: 'GET',
       accessToken,
@@ -359,7 +373,12 @@ export async function listInvites(accessToken: string, boardId: string): Promise
     id: row.id,
     token: row.token,
     role: row.role === 'viewer' ? 'viewer' : 'editor',
+    isReusable: Boolean(row.is_reusable),
+    acceptedCount: typeof row.accepted_count === 'number' ? Math.max(0, row.accepted_count) : 0,
+    lastAcceptedBy: typeof row.last_accepted_by === 'string' ? row.last_accepted_by : null,
+    lastAcceptedAt: typeof row.last_accepted_at === 'string' ? row.last_accepted_at : null,
     expiresAt: row.expires_at,
+    revokedAt: typeof row.revoked_at === 'string' ? row.revoked_at : null,
     createdAt: row.created_at,
   }))
 }
@@ -370,10 +389,39 @@ export async function revokeInvite(accessToken: string, boardId: string, inviteI
       boardId
     )}&select=id`,
     {
-      method: 'DELETE',
+      method: 'PATCH',
       accessToken,
+      body: {
+        revoked_at: new Date().toISOString(),
+      },
+      prefer: 'return=representation',
     }
   )
+}
+
+export async function cleanupInvites(accessToken: string, boardId: string): Promise<number> {
+  const nowIso = new Date().toISOString()
+  const expired = await restFetch<Array<{ id: string }>>(
+    `/rest/v1/board_invites?board_id=eq.${encodeURIComponent(
+      boardId
+    )}&expires_at=lte.${encodeURIComponent(nowIso)}&select=id`,
+    {
+      method: 'DELETE',
+      accessToken,
+      prefer: 'return=representation',
+    }
+  )
+  const revoked = await restFetch<Array<{ id: string }>>(
+    `/rest/v1/board_invites?board_id=eq.${encodeURIComponent(
+      boardId
+    )}&revoked_at=not.is.null&select=id`,
+    {
+      method: 'DELETE',
+      accessToken,
+      prefer: 'return=representation',
+    }
+  )
+  return expired.length + revoked.length
 }
 
 export async function updateBoardMemberRole(
@@ -501,9 +549,17 @@ export async function acceptInvite(
       console.warn('[board.invite.accept.invalid]', { userId, token })
       throw new Error('INVITE_INVALID')
     }
+    if (message.includes('INVITE_USED')) {
+      console.warn('[board.invite.accept.used]', { userId, token })
+      throw new Error('INVITE_USED')
+    }
+    if (message.includes('INVITE_REVOKED')) {
+      console.warn('[board.invite.accept.revoked]', { userId, token })
+      throw new Error('INVITE_REVOKED')
+    }
     if (message.includes('Could not find the function public.accept_board_invite')) {
       throw new Error(
-        'Invite acceptance backend not installed. Run supabase/phase3_accept_invite_rpc.sql in Supabase SQL Editor.'
+        'Invite acceptance backend not installed. Run supabase/phase4_invite_lifecycle.sql in Supabase SQL Editor.'
       )
     }
     throw error instanceof Error ? error : new Error('INVITE_ACCEPT_FAILED')

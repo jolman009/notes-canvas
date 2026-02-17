@@ -7,16 +7,16 @@ Phase 4 covers:
 - End-to-end rollout and release controls
 
 ## TODO
-- [ ] Finalize board governance flows:
+- [x] Finalize board governance flows:
   - [x] Add ownership transfer flow (explicit confirmation + safety checks)
   - [x] Add owner UI for member role changes (`editor` <-> `viewer`)
   - [x] Add owner flow to remove members from a board
   - [x] Add self-service "Leave board" flow for non-owners
-- [ ] Harden invite lifecycle:
-  - [ ] Add default invite expiration policy (for example: 7 days)
-  - [ ] Add reusable vs one-time invite option (owner-controlled)
-  - [ ] Add invite audit fields (`accepted_by`, `accepted_at`) if needed
-  - [ ] Add cleanup path for expired/revoked invites
+- [x] Harden invite lifecycle:
+  - [x] Add default invite expiration policy (for example: 7 days)
+  - [x] Add reusable vs one-time invite option (owner-controlled)
+  - [x] Add invite audit fields (`accepted_by`, `accepted_at`) if needed
+  - [x] Add cleanup path for expired/revoked invites
 - [ ] Improve board management UX:
   - [x] Rename board from board header/settings
   - [x] Add archive/delete board flow with confirmation guardrails
@@ -50,8 +50,8 @@ Phase 4 covers:
 - [ ] Add implementation notes after Phase 4 validation.
 
 ## Exit Criteria
-- [ ] Ownership/member governance flows are complete and validated.
-- [ ] Invite lifecycle policies are enforced and observable in production.
+- [x] Ownership/member governance flows are complete and validated.
+- [x] Invite lifecycle policies are enforced and observable in production.
 - [ ] Realtime sync UX clearly communicates status and recovery paths.
 - [ ] Security/ops checks and backup/restore verification are signed off.
 - [ ] E2E test coverage gates release for invite, access, and collaboration paths.
@@ -61,6 +61,7 @@ Phase 4 covers:
 - `supabase/phase4_governance_policies.sql`
 - `supabase/phase4_governance_policy_tests.sql`
 - `supabase/phase4_ownership_transfer.sql`
+- `supabase/phase4_invite_lifecycle.sql`
 - `src/routes/board.$boardId.tsx`
 - `src/routes/boards.tsx`
 - `src/server/board-store.ts`

@@ -47,6 +47,22 @@ const acceptInviteServer = createServerFn({ method: 'POST' })
           message: 'This invite link is invalid or no longer available.',
         }
       }
+      if (message.includes('INVITE_USED')) {
+        return {
+          ok: false as const,
+          boardId: '',
+          code: 'used-token' as const,
+          message: 'This invite link has already been used.',
+        }
+      }
+      if (message.includes('INVITE_REVOKED')) {
+        return {
+          ok: false as const,
+          boardId: '',
+          code: 'revoked-token' as const,
+          message: 'This invite link was revoked by the board owner.',
+        }
+      }
       return {
         ok: false as const,
         boardId: '',
@@ -65,7 +81,14 @@ function InvitePage() {
   const navigate = useNavigate()
   const [session, setSession] = useState<AuthSession | null>(null)
   const [status, setStatus] = useState<
-    'loading' | 'joined' | 'already-member' | 'invalid-token' | 'expired-token' | 'error'
+    | 'loading'
+    | 'joined'
+    | 'already-member'
+    | 'invalid-token'
+    | 'expired-token'
+    | 'used-token'
+    | 'revoked-token'
+    | 'error'
   >('loading')
   const [message, setMessage] = useState('Accepting invite...')
   const [joinedBoardId, setJoinedBoardId] = useState('')
@@ -101,7 +124,11 @@ function InvitePage() {
           return
         }
         setStatus(
-          result.code === 'expired-token' || result.code === 'invalid-token' || result.code === 'error'
+          result.code === 'expired-token' ||
+            result.code === 'invalid-token' ||
+            result.code === 'used-token' ||
+            result.code === 'revoked-token' ||
+            result.code === 'error'
             ? result.code
             : 'error'
         )
@@ -141,7 +168,11 @@ function InvitePage() {
             </Link>
           </div>
         ) : null}
-        {status === 'invalid-token' || status === 'expired-token' || status === 'error' ? (
+        {status === 'invalid-token' ||
+        status === 'expired-token' ||
+        status === 'used-token' ||
+        status === 'revoked-token' ||
+        status === 'error' ? (
           <div className="mt-4 flex items-center justify-center gap-3">
             <Link
               to="/boards"
