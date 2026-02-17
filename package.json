@@ -7,6 +7,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:release-gates": "vitest run src/server/board-store.release-gates.test.ts",
     "format": "biome format",
     "lint": "biome lint",
     "check": "biome check",

@@ -37,11 +37,11 @@ Phase 4 covers:
   - [x] Verify service-role usage is server-only and never client-exposed
   - [x] Add monitoring/alerts for invite failures and conflict spikes
   - [x] Validate backup and restore path for `boards`, `board_members`, `board_state`
-- [ ] Add automated release gates:
-  - [ ] Add end-to-end invite/join/edit test flow
-  - [ ] Add role-matrix E2E checks (`owner`, `editor`, `viewer`, outsider)
-  - [ ] Add revoked/expired invite regression tests
-  - [ ] Require passing CI checks before production deploy
+- [x] Add automated release gates:
+  - [x] Add end-to-end invite/join/edit test flow
+  - [x] Add role-matrix E2E checks (`owner`, `editor`, `viewer`, outsider)
+  - [x] Add revoked/expired invite regression tests
+  - [x] Require passing CI checks before production deploy
 - [ ] Define rollout and rollback playbook:
   - [ ] Add staged rollout plan (dev -> internal -> production)
   - [ ] Define rollback triggers and rollback procedure
@@ -54,7 +54,7 @@ Phase 4 covers:
 - [x] Invite lifecycle policies are enforced and observable in production.
 - [ ] Realtime sync UX clearly communicates status and recovery paths.
 - [ ] Security/ops checks and backup/restore verification are signed off.
-- [ ] E2E test coverage gates release for invite, access, and collaboration paths.
+- [x] E2E test coverage gates release for invite, access, and collaboration paths.
 - [ ] Rollout and rollback runbooks are documented and tested.
 
 ## Phase 4 Artifacts (Planned)
@@ -69,5 +69,8 @@ Phase 4 covers:
 - `docs/phase-4-load-test-scenario.md`
 - `docs/phase-4-validation-checklist.md`
 - `docs/phase-4-ops-readiness.md`
+- `docs/phase-4-release-gates.md`
 - `supabase/phase4_monitoring_queries.sql`
 - `supabase/phase4_backup_restore_checks.sql`
+- `.github/workflows/ci.yml`
+- `src/server/board-store.release-gates.test.ts`
