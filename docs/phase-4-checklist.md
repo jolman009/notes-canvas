@@ -17,17 +17,17 @@ Phase 4 covers:
   - [x] Add reusable vs one-time invite option (owner-controlled)
   - [x] Add invite audit fields (`accepted_by`, `accepted_at`) if needed
   - [x] Add cleanup path for expired/revoked invites
-- [ ] Improve board management UX:
+- [x] Improve board management UX:
   - [x] Rename board from board header/settings
   - [x] Add archive/delete board flow with confirmation guardrails
   - [x] Add clear empty/loading/error states for board list and board page
   - [x] Add member list panel with role badges and ownership indicator
-- [ ] Improve realtime UX polish:
+- [x] Improve realtime UX polish:
   - [x] Add clearer sync status states (`Live`, `Reconnecting`, `Offline`)
   - [x] Show last successful sync timestamp in board UI
   - [x] Add clearer conflict resolution affordances and retry messaging
   - [x] Add presence timeout cleanup for stale users
-- [ ] Add performance and reliability safeguards:
+- [x] Add performance and reliability safeguards:
   - [x] Tune save throttling/debouncing under fast edit bursts
   - [x] Verify reconnect behavior under flaky network conditions
   - [x] Add load test scenario for multi-user concurrent editing
@@ -42,12 +42,12 @@ Phase 4 covers:
   - [x] Add role-matrix E2E checks (`owner`, `editor`, `viewer`, outsider)
   - [x] Add revoked/expired invite regression tests
   - [x] Require passing CI checks before production deploy
-- [ ] Define rollout and rollback playbook:
-  - [ ] Add staged rollout plan (dev -> internal -> production)
-  - [ ] Define rollback triggers and rollback procedure
-  - [ ] Add post-release smoke checklist
-  - [ ] Record on-call owner for release window
-- [ ] Add implementation notes after Phase 4 validation.
+- [x] Define rollout and rollback playbook:
+  - [x] Add staged rollout plan (dev -> internal -> production)
+  - [x] Define rollback triggers and rollback procedure
+  - [x] Add post-release smoke checklist
+  - [x] Record on-call owner for release window
+- [x] Add implementation notes after Phase 4 validation.
 
 ## Exit Criteria
 - [x] Ownership/member governance flows are complete and validated.
@@ -74,3 +74,5 @@ Phase 4 covers:
 - `supabase/phase4_backup_restore_checks.sql`
 - `.github/workflows/ci.yml`
 - `src/server/board-store.release-gates.test.ts`
+- `docs/phase-4-rollout-rollback-playbook.md`
+- `docs/phase-4-implementation-notes.md`
