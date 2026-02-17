@@ -531,6 +531,8 @@ function BoardRoute() {
   const realtimeClientRef = useRef<SupabaseClient | null>(null)
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null)
   const pendingSaveNotesRef = useRef<Note[] | null>(null)
+  const saveInFlightRef = useRef(false)
+  const queuedSaveNotesRef = useRef<Note[] | null>(null)
   const presenceLastSeenRef = useRef<Map<string, { label: string; lastSeenAt: number }>>(new Map())
 
   const cacheKey = useMemo(
@@ -646,6 +648,73 @@ function BoardRoute() {
     }
   }, [boardId, session])
 
+  const getSaveDebounceMs = useCallback((draftNotes: Note[]) => {
+    const noteCount = draftNotes.length
+    const hasImagePayload = draftNotes.some((note) => note.imageDataUrl.length > 0)
+    if (hasImagePayload || noteCount >= 30) {
+      return 900
+    }
+    if (noteCount >= 15) {
+      return 700
+    }
+    return 450
+  }, [])
+
+  const drainSaveQueue = useCallback(async () => {
+    if (!session || saveInFlightRef.current) {
+      return
+    }
+    const notesToSave = queuedSaveNotesRef.current
+    if (!notesToSave) {
+      return
+    }
+
+    queuedSaveNotesRef.current = null
+    saveInFlightRef.current = true
+    pendingSaveNotesRef.current = notesToSave
+
+    try {
+      const result = await saveBoardNotesServer({
+        data: {
+          userId: session.user.id,
+          accessToken: session.accessToken,
+          boardId,
+          expectedRevision: revisionRef.current,
+          notes: notesToSave,
+        },
+      })
+
+      if (result.ok) {
+        setSyncState('saved')
+        setBoardRevision(result.revision)
+        revisionRef.current = result.revision
+        lastSyncedNotesRef.current = notesToSave
+        setLastSyncAt(new Date())
+      } else if (result.code === 'conflict') {
+        setConflictCount((count) => count + 1)
+        setPendingConflictNotes(notesToSave)
+        setCollabMessageKind('conflict')
+        setCollabMessage(
+          'Save conflict detected. Latest board was loaded. Choose whether to keep your draft or keep the latest board.'
+        )
+        await reloadLatestSnapshot(false)
+      } else {
+        setSaveErrorMessage(result.message || 'Save failed. Your local draft was rolled back.')
+        setSyncFailureCount((count) => count + 1)
+        suppressNextSaveRef.current = true
+        setNotes(lastSyncedNotesRef.current)
+        setSyncState('error')
+      }
+    } finally {
+      saveInFlightRef.current = false
+    }
+
+    if (queuedSaveNotesRef.current) {
+      setSyncState('saving')
+      void drainSaveQueue()
+    }
+  }, [boardId, reloadLatestSnapshot, session])
+
   useEffect(() => {
     if (!session || typeof window === 'undefined') {
       return
@@ -716,50 +785,19 @@ function BoardRoute() {
       setSyncFailureCount((count) => count + 1)
       return
     }
+
+    queuedSaveNotesRef.current = notes
+    const debounceMs = getSaveDebounceMs(notes)
     setSyncState('saving')
     saveTimerRef.current = setTimeout(() => {
-      void (async () => {
-        pendingSaveNotesRef.current = notes
-        const result = await saveBoardNotesServer({
-          data: {
-            userId: session.user.id,
-            accessToken: session.accessToken,
-            boardId,
-            expectedRevision: revisionRef.current,
-            notes,
-          },
-        })
-        if (result.ok) {
-          setSyncState('saved')
-          setBoardRevision(result.revision)
-          revisionRef.current = result.revision
-          lastSyncedNotesRef.current = notes
-          setLastSyncAt(new Date())
-          return
-        }
-        if (result.code === 'conflict') {
-          setConflictCount((count) => count + 1)
-          setPendingConflictNotes(pendingSaveNotesRef.current)
-          setCollabMessageKind('conflict')
-          setCollabMessage(
-            'Save conflict detected. Latest board was loaded. Choose whether to keep your draft or keep the latest board.'
-          )
-          await reloadLatestSnapshot(false)
-          return
-        }
-        setSaveErrorMessage(result.message || 'Save failed. Your local draft was rolled back.')
-        setSyncFailureCount((count) => count + 1)
-        suppressNextSaveRef.current = true
-        setNotes(lastSyncedNotesRef.current)
-        setSyncState('error')
-      })()
-    }, 450)
+      void drainSaveQueue()
+    }, debounceMs)
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
       }
     }
-  }, [session, boardId, notes, reloadLatestSnapshot, boardAccess.canEdit])
+  }, [boardAccess.canEdit, drainSaveQueue, getSaveDebounceMs, notes, session])
 
   useEffect(() => {
     if (!session || !hasInitializedRef.current) {

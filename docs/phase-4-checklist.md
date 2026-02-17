@@ -28,7 +28,7 @@ Phase 4 covers:
   - [x] Add clearer conflict resolution affordances and retry messaging
   - [x] Add presence timeout cleanup for stale users
 - [ ] Add performance and reliability safeguards:
-  - [ ] Tune save throttling/debouncing under fast edit bursts
+  - [x] Tune save throttling/debouncing under fast edit bursts
   - [ ] Verify reconnect behavior under flaky network conditions
   - [ ] Add load test scenario for multi-user concurrent editing
   - [ ] Verify no duplicate subscriptions on route transitions
