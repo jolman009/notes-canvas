@@ -59,6 +59,25 @@ function BoardsPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState('')
 
+  const loadBoards = async (current: AuthSession) => {
+    setLoading(true)
+    setError('')
+    const result = await listBoardsServer({
+      data: {
+        userId: current.user.id,
+        accessToken: current.accessToken,
+      },
+    })
+    if (!result.ok) {
+      setBoards([])
+      setError('Failed to load boards. Please try again.')
+      setLoading(false)
+      return
+    }
+    setBoards(result.boards)
+    setLoading(false)
+  }
+
   useEffect(() => {
     const current = getStoredSession()
     if (!isSessionValid(current)) {
@@ -67,21 +86,7 @@ function BoardsPage() {
       return
     }
     setSession(current)
-    void (async () => {
-      const result = await listBoardsServer({
-        data: {
-          userId: current.user.id,
-          accessToken: current.accessToken,
-        },
-      })
-      if (!result.ok) {
-        setError('Failed to load boards.')
-        setLoading(false)
-        return
-      }
-      setBoards(result.boards)
-      setLoading(false)
-    })()
+    void loadBoards(current)
   }, [navigate])
 
   const onCreateBoard = async () => {
@@ -136,13 +141,37 @@ function BoardsPage() {
           {error ? <p className="text-sm text-rose-300">{error}</p> : null}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {loading ? (
-            <p className="text-slate-400">Loading boards...</p>
-          ) : boards.length === 0 ? (
-            <p className="text-slate-400">No boards yet. Create your first board.</p>
-          ) : (
-            boards.map((board) => (
+        {loading ? (
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-6">
+            <p className="text-sm text-slate-300">Loading boards...</p>
+            <p className="text-xs text-slate-500 mt-1">Fetching your board memberships.</p>
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-rose-700/70 bg-rose-950/20 p-6">
+            <p className="text-sm text-rose-300">{error}</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (session) {
+                  void loadBoards(session)
+                }
+              }}
+              disabled={!session}
+              className="mt-3 inline-flex items-center rounded-lg border border-rose-600/70 px-3 py-2 text-sm text-rose-200 hover:bg-rose-950/40 disabled:opacity-60"
+            >
+              Retry
+            </button>
+          </div>
+        ) : boards.length === 0 ? (
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-6">
+            <p className="text-sm text-slate-300">No boards yet.</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Create your first board above to start collaborating.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {boards.map((board) => (
               <button
                 key={board.id}
                 type="button"
@@ -157,9 +186,9 @@ function BoardsPage() {
                 <p className="text-lg font-semibold">{board.title}</p>
                 <p className="text-sm text-slate-400 mt-1">Role: {board.role}</p>
               </button>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   )

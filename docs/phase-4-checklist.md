@@ -20,7 +20,7 @@ Phase 4 covers:
 - [ ] Improve board management UX:
   - [x] Rename board from board header/settings
   - [x] Add archive/delete board flow with confirmation guardrails
-  - [ ] Add clear empty/loading/error states for board list and board page
+  - [x] Add clear empty/loading/error states for board list and board page
   - [x] Add member list panel with role badges and ownership indicator
 - [ ] Improve realtime UX polish:
   - [x] Add clearer sync status states (`Live`, `Reconnecting`, `Offline`)

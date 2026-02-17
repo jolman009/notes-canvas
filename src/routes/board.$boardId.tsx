@@ -513,6 +513,7 @@ function BoardRoute() {
   const [memberActionUserId, setMemberActionUserId] = useState('')
   const [boardMessage, setBoardMessage] = useState('')
   const [loadError, setLoadError] = useState('')
+  const [isBoardBootstrapping, setIsBoardBootstrapping] = useState(true)
   const [boardRevision, setBoardRevision] = useState(0)
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null)
   const [realtimeStatus, setRealtimeStatus] = useState<
@@ -644,6 +645,8 @@ function BoardRoute() {
       return
     }
     hasInitializedRef.current = false
+    setLoadError('')
+    setIsBoardBootstrapping(true)
     const cached = window.localStorage.getItem(cacheKey)
     if (cached) {
       try {
@@ -674,9 +677,9 @@ function BoardRoute() {
         await refreshBoardMeta()
       } else {
         setLoadError('You do not have access to this board.')
-        await navigate({ to: '/boards' })
       }
       hasInitializedRef.current = true
+      setIsBoardBootstrapping(false)
     })()
   }, [session, boardId, cacheKey, refreshBoardMeta])
 
@@ -1213,10 +1216,44 @@ function BoardRoute() {
     setInviteMessage(`Invite cleanup complete (${result.removed} removed).`)
   }
 
-  if (isCheckingAuth) {
+  const retryBoardBootstrap = async () => {
+    if (!session) {
+      return
+    }
+    setLoadError('')
+    setIsBoardBootstrapping(true)
+    const result = await loadBoardNotesServer({
+      data: {
+        userId: session.user.id,
+        accessToken: session.accessToken,
+        boardId,
+      },
+    })
+    if (result.ok) {
+      suppressNextSaveRef.current = true
+      setNotes(result.notes)
+      setBoardRevision(result.revision)
+      revisionRef.current = result.revision
+      lastSyncedNotesRef.current = result.notes
+      setLastSyncAt(new Date())
+      await refreshBoardMeta()
+      hasInitializedRef.current = true
+      setIsBoardBootstrapping(false)
+      return
+    }
+    setLoadError('You do not have access to this board.')
+    setIsBoardBootstrapping(false)
+  }
+
+  if (isCheckingAuth || isBoardBootstrapping) {
     return (
       <main className="h-[calc(100vh-4rem)] bg-slate-950 text-slate-100 flex items-center justify-center">
-        <p className="text-sm text-slate-400">Checking session...</p>
+        <div className="rounded-xl border border-slate-700 bg-slate-900 px-6 py-5">
+          <p className="text-sm text-slate-300">{isCheckingAuth ? 'Checking session...' : 'Loading board...'}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {isCheckingAuth ? 'Validating authentication.' : 'Loading board state and permissions.'}
+          </p>
+        </div>
       </main>
     )
   }
@@ -1224,7 +1261,25 @@ function BoardRoute() {
   if (loadError) {
     return (
       <main className="h-[calc(100vh-4rem)] bg-slate-950 text-slate-100 flex items-center justify-center">
-        <p className="text-sm text-rose-300">{loadError}</p>
+        <div className="w-full max-w-md rounded-xl border border-rose-700/70 bg-rose-950/20 p-6">
+          <p className="text-sm text-rose-300">{loadError}</p>
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void navigate({ to: '/boards' })}
+              className="inline-flex items-center rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+            >
+              Back to boards
+            </button>
+            <button
+              type="button"
+              onClick={() => void retryBoardBootstrap()}
+              className="inline-flex items-center rounded-lg border border-rose-600/70 px-3 py-2 text-sm text-rose-200 hover:bg-rose-950/40"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
       </main>
     )
   }
