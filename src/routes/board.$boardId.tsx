@@ -534,6 +534,7 @@ function BoardRoute() {
   const saveInFlightRef = useRef(false)
   const queuedSaveNotesRef = useRef<Note[] | null>(null)
   const presenceLastSeenRef = useRef<Map<string, { label: string; lastSeenAt: number }>>(new Map())
+  const realtimeSubscriptionVersionRef = useRef(0)
 
   const cacheKey = useMemo(
     () => (session ? `canvas-board:${session.user.id}:${boardId}` : ''),
@@ -814,10 +815,21 @@ function BoardRoute() {
       return
     }
     const onOnline = () => {
+      setCollabMessageKind('info')
+      setCollabMessage('Network reconnected. Syncing latest board state...')
       void reloadLatestSnapshot(true)
     }
+    const onOffline = () => {
+      setRealtimeStatus('error')
+      setCollabMessageKind('info')
+      setCollabMessage('You are offline. Edits will sync when the connection is restored.')
+    }
     window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
   }, [session, reloadLatestSnapshot])
 
   useEffect(() => {
@@ -830,9 +842,27 @@ function BoardRoute() {
     }
 
     let cancelled = false
+    const subscriptionVersion = ++realtimeSubscriptionVersionRef.current
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null
     let stalePruneTimer: ReturnType<typeof setInterval> | null = null
     setRealtimeStatus('connecting')
+
+    const teardownRealtime = () => {
+      const client = realtimeClientRef.current
+      const channel = realtimeChannelRef.current
+      realtimeChannelRef.current = null
+      realtimeClientRef.current = null
+      if (client && channel) {
+        void client.removeChannel(channel)
+      }
+      if (client) {
+        void client.realtime.disconnect()
+      }
+    }
+
+    teardownRealtime()
+    presenceLastSeenRef.current.clear()
+    setPresenceUsers([])
 
     void (async () => {
       try {
@@ -903,7 +933,7 @@ function BoardRoute() {
             setPresenceUsers(nextPresence)
           })
           .subscribe((status) => {
-            if (cancelled) {
+            if (cancelled || subscriptionVersion !== realtimeSubscriptionVersionRef.current) {
               return
             }
             if (status === 'SUBSCRIBED') {
@@ -922,6 +952,8 @@ function BoardRoute() {
             }
             if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
               setRealtimeStatus('error')
+              setCollabMessageKind('info')
+              setCollabMessage('Realtime connection interrupted. Retrying automatically...')
             }
           })
 
@@ -970,17 +1002,10 @@ function BoardRoute() {
       if (stalePruneTimer) {
         clearInterval(stalePruneTimer)
       }
-      const client = realtimeClientRef.current
-      const channel = realtimeChannelRef.current
-      realtimeChannelRef.current = null
-      realtimeClientRef.current = null
       presenceLastSeenRef.current.clear()
       setPresenceUsers([])
-      if (client && channel) {
-        void client.removeChannel(channel)
-      }
-      if (client) {
-        void client.realtime.disconnect()
+      if (subscriptionVersion === realtimeSubscriptionVersionRef.current) {
+        teardownRealtime()
       }
     }
   }, [boardId, session, reloadLatestSnapshot, realtimeConfig])

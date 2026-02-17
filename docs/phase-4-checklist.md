@@ -29,9 +29,9 @@ Phase 4 covers:
   - [x] Add presence timeout cleanup for stale users
 - [ ] Add performance and reliability safeguards:
   - [x] Tune save throttling/debouncing under fast edit bursts
-  - [ ] Verify reconnect behavior under flaky network conditions
-  - [ ] Add load test scenario for multi-user concurrent editing
-  - [ ] Verify no duplicate subscriptions on route transitions
+  - [x] Verify reconnect behavior under flaky network conditions
+  - [x] Add load test scenario for multi-user concurrent editing
+  - [x] Verify no duplicate subscriptions on route transitions
 - [ ] Complete security and ops readiness:
   - [ ] Add rate limiting for invite create/accept endpoints
   - [ ] Verify service-role usage is server-only and never client-exposed
@@ -66,4 +66,5 @@ Phase 4 covers:
 - `src/routes/boards.tsx`
 - `src/server/board-store.ts`
 - `src/server/invites.ts`
+- `docs/phase-4-load-test-scenario.md`
 - `docs/phase-4-validation-checklist.md`
