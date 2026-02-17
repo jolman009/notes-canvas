@@ -32,11 +32,11 @@ Phase 4 covers:
   - [x] Verify reconnect behavior under flaky network conditions
   - [x] Add load test scenario for multi-user concurrent editing
   - [x] Verify no duplicate subscriptions on route transitions
-- [ ] Complete security and ops readiness:
+- [x] Complete security and ops readiness:
   - [x] Add rate limiting for invite create/accept endpoints
-  - [ ] Verify service-role usage is server-only and never client-exposed
-  - [ ] Add monitoring/alerts for invite failures and conflict spikes
-  - [ ] Validate backup and restore path for `boards`, `board_members`, `board_state`
+  - [x] Verify service-role usage is server-only and never client-exposed
+  - [x] Add monitoring/alerts for invite failures and conflict spikes
+  - [x] Validate backup and restore path for `boards`, `board_members`, `board_state`
 - [ ] Add automated release gates:
   - [ ] Add end-to-end invite/join/edit test flow
   - [ ] Add role-matrix E2E checks (`owner`, `editor`, `viewer`, outsider)
@@ -68,3 +68,6 @@ Phase 4 covers:
 - `src/server/invites.ts`
 - `docs/phase-4-load-test-scenario.md`
 - `docs/phase-4-validation-checklist.md`
+- `docs/phase-4-ops-readiness.md`
+- `supabase/phase4_monitoring_queries.sql`
+- `supabase/phase4_backup_restore_checks.sql`
