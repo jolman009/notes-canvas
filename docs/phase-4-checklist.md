@@ -26,7 +26,7 @@ Phase 4 covers:
   - [x] Add clearer sync status states (`Live`, `Reconnecting`, `Offline`)
   - [x] Show last successful sync timestamp in board UI
   - [x] Add clearer conflict resolution affordances and retry messaging
-  - [ ] Add presence timeout cleanup for stale users
+  - [x] Add presence timeout cleanup for stale users
 - [ ] Add performance and reliability safeguards:
   - [ ] Tune save throttling/debouncing under fast edit bursts
   - [ ] Verify reconnect behavior under flaky network conditions

@@ -40,6 +40,9 @@ type BoardMemberSummary = {
   createdAt: string
 }
 
+const PRESENCE_HEARTBEAT_MS = 20_000
+const PRESENCE_STALE_MS = 60_000
+
 const loadBoardNotesServer = createServerFn({ method: 'POST' })
   .inputValidator((input: { userId: string; accessToken: string; boardId: string }) => ({
     userId: String(input.userId || '').trim(),
@@ -528,6 +531,7 @@ function BoardRoute() {
   const realtimeClientRef = useRef<SupabaseClient | null>(null)
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null)
   const pendingSaveNotesRef = useRef<Note[] | null>(null)
+  const presenceLastSeenRef = useRef<Map<string, { label: string; lastSeenAt: number }>>(new Map())
 
   const cacheKey = useMemo(
     () => (session ? `canvas-board:${session.user.id}:${boardId}` : ''),
@@ -788,6 +792,8 @@ function BoardRoute() {
     }
 
     let cancelled = false
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+    let stalePruneTimer: ReturnType<typeof setInterval> | null = null
     setRealtimeStatus('connecting')
 
     void (async () => {
@@ -823,16 +829,40 @@ function BoardRoute() {
             const state = channel.presenceState<{
               id: string
               label: string
+              seenAt?: number
             }>()
             const users = Object.values(state)
               .flat()
               .map((entry) => ({
                 id: entry.id,
                 label: entry.label,
+                seenAt:
+                  typeof entry.seenAt === 'number' && Number.isFinite(entry.seenAt)
+                    ? entry.seenAt
+                    : Date.now(),
               }))
               .filter((entry) => entry.id)
             const deduped = Array.from(new Map(users.map((entry) => [entry.id, entry])).values())
-            setPresenceUsers(deduped)
+            for (const user of deduped) {
+              const current = presenceLastSeenRef.current.get(user.id)
+              if (!current || user.seenAt >= current.lastSeenAt) {
+                presenceLastSeenRef.current.set(user.id, {
+                  label: user.label,
+                  lastSeenAt: user.seenAt,
+                })
+              }
+            }
+
+            const now = Date.now()
+            const nextPresence: Array<{ id: string; label: string }> = []
+            for (const [id, value] of presenceLastSeenRef.current.entries()) {
+              if (now - value.lastSeenAt <= PRESENCE_STALE_MS || id === session.user.id) {
+                nextPresence.push({ id, label: value.label })
+              } else {
+                presenceLastSeenRef.current.delete(id)
+              }
+            }
+            setPresenceUsers(nextPresence)
           })
           .subscribe((status) => {
             if (cancelled) {
@@ -840,9 +870,15 @@ function BoardRoute() {
             }
             if (status === 'SUBSCRIBED') {
               setRealtimeStatus('connected')
+              const now = Date.now()
+              presenceLastSeenRef.current.set(session.user.id, {
+                label: session.user.name || session.user.email,
+                lastSeenAt: now,
+              })
               void channel.track({
                 id: session.user.id,
                 label: session.user.name || session.user.email,
+                seenAt: now,
               })
               return
             }
@@ -850,6 +886,34 @@ function BoardRoute() {
               setRealtimeStatus('error')
             }
           })
+
+        heartbeatTimer = window.setInterval(() => {
+          if (cancelled) {
+            return
+          }
+          const now = Date.now()
+          void channel.track({
+            id: session.user.id,
+            label: session.user.name || session.user.email,
+            seenAt: now,
+          })
+        }, PRESENCE_HEARTBEAT_MS)
+
+        stalePruneTimer = window.setInterval(() => {
+          if (cancelled) {
+            return
+          }
+          const now = Date.now()
+          const nextPresence: Array<{ id: string; label: string }> = []
+          for (const [id, value] of presenceLastSeenRef.current.entries()) {
+            if (now - value.lastSeenAt <= PRESENCE_STALE_MS || id === session.user.id) {
+              nextPresence.push({ id, label: value.label })
+            } else {
+              presenceLastSeenRef.current.delete(id)
+            }
+          }
+          setPresenceUsers(nextPresence)
+        }, 10_000)
 
         realtimeClientRef.current = client
         realtimeChannelRef.current = channel
@@ -862,10 +926,17 @@ function BoardRoute() {
 
     return () => {
       cancelled = true
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer)
+      }
+      if (stalePruneTimer) {
+        clearInterval(stalePruneTimer)
+      }
       const client = realtimeClientRef.current
       const channel = realtimeChannelRef.current
       realtimeChannelRef.current = null
       realtimeClientRef.current = null
+      presenceLastSeenRef.current.clear()
       setPresenceUsers([])
       if (client && channel) {
         void client.removeChannel(channel)
