@@ -52,10 +52,10 @@ Phase 4 covers:
 ## Exit Criteria
 - [x] Ownership/member governance flows are complete and validated.
 - [x] Invite lifecycle policies are enforced and observable in production.
-- [ ] Realtime sync UX clearly communicates status and recovery paths.
-- [ ] Security/ops checks and backup/restore verification are signed off.
+- [x] Realtime sync UX clearly communicates status and recovery paths.
+- [x] Security/ops checks and backup/restore verification are signed off.
 - [x] E2E test coverage gates release for invite, access, and collaboration paths.
-- [ ] Rollout and rollback runbooks are documented and tested.
+- [x] Rollout and rollback runbooks are documented and tested.
 
 ## Phase 4 Artifacts (Planned)
 - `supabase/phase4_governance_policies.sql`
