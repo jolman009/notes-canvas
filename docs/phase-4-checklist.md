@@ -33,7 +33,7 @@ Phase 4 covers:
   - [x] Add load test scenario for multi-user concurrent editing
   - [x] Verify no duplicate subscriptions on route transitions
 - [ ] Complete security and ops readiness:
-  - [ ] Add rate limiting for invite create/accept endpoints
+  - [x] Add rate limiting for invite create/accept endpoints
   - [ ] Verify service-role usage is server-only and never client-exposed
   - [ ] Add monitoring/alerts for invite failures and conflict spikes
   - [ ] Validate backup and restore path for `boards`, `board_members`, `board_state`

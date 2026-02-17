@@ -3,6 +3,8 @@ export const DEFAULT_NOTE_WIDTH = 260
 export const DEFAULT_NOTE_HEIGHT = 220
 export const MIN_NOTE_WIDTH = 180
 export const MIN_NOTE_HEIGHT = 150
+export const NOTE_REACTIONS = ['👍', '❤️', '👏'] as const
+export type NoteReaction = (typeof NOTE_REACTIONS)[number] | ''
 
 export type Note = {
   id: string
@@ -14,6 +16,7 @@ export type Note = {
   imageFit: 'cover' | 'contain'
   imageNaturalWidth: number
   imageNaturalHeight: number
+  reactionEmoji: NoteReaction
   x: number
   y: number
   width: number
@@ -32,6 +35,7 @@ export const seedNotes: Note[] = [
     imageFit: 'cover',
     imageNaturalWidth: 0,
     imageNaturalHeight: 0,
+    reactionEmoji: '',
     x: 60,
     y: 60,
     width: DEFAULT_NOTE_WIDTH,
@@ -48,6 +52,7 @@ export const seedNotes: Note[] = [
     imageFit: 'cover',
     imageNaturalWidth: 0,
     imageNaturalHeight: 0,
+    reactionEmoji: '',
     x: 370,
     y: 170,
     width: DEFAULT_NOTE_WIDTH,
@@ -85,6 +90,10 @@ export function sanitizeNotes(input: unknown): Note[] {
           typeof note.imageNaturalHeight === 'number'
             ? Math.max(0, note.imageNaturalHeight)
             : 0,
+        reactionEmoji:
+          typeof note.reactionEmoji === 'string' && NOTE_REACTIONS.includes(note.reactionEmoji as NoteReaction)
+            ? (note.reactionEmoji as NoteReaction)
+            : '',
         x: typeof note.x === 'number' ? Math.max(0, note.x) : 0,
         y: typeof note.y === 'number' ? Math.max(0, note.y) : 0,
         width:

@@ -2,6 +2,7 @@ import { Plus, Search, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   NOTE_COLORS,
+  NOTE_REACTIONS,
   DEFAULT_NOTE_HEIGHT,
   DEFAULT_NOTE_WIDTH,
   MIN_NOTE_HEIGHT,
@@ -30,6 +31,9 @@ export default function BoardCanvas({
   const [query, setQuery] = useState('')
   const [colorFilter, setColorFilter] = useState('all')
   const [tagFilter, setTagFilter] = useState('all')
+  const [inspectorTab, setInspectorTab] = useState<'content' | 'media' | 'link' | 'style'>(
+    'content'
+  )
   const boardRef = useRef<HTMLDivElement | null>(null)
   const dragStateRef = useRef<{
     id: string
@@ -174,6 +178,7 @@ export default function BoardCanvas({
         imageFit: 'cover',
         imageNaturalWidth: 0,
         imageNaturalHeight: 0,
+        reactionEmoji: '',
         x,
         y,
         width: DEFAULT_NOTE_WIDTH,
@@ -274,6 +279,7 @@ export default function BoardCanvas({
       | 'imageFit'
       | 'imageNaturalWidth'
       | 'imageNaturalHeight'
+      | 'reactionEmoji'
     >,
     value: string | number
   ) => {
@@ -413,7 +419,223 @@ export default function BoardCanvas({
           </div>
         </div>
 
-        <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
+          <aside className="rounded-2xl border border-slate-700 bg-slate-900/85 p-4 flex flex-col gap-3 overflow-y-auto">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+                Inspector
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Select a note to edit details in one place.
+              </p>
+            </div>
+            {!selectedNote ? (
+              <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+                No note selected.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-950/70 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setInspectorTab('content')}
+                    className={`h-8 rounded text-xs ${
+                      inspectorTab === 'content'
+                        ? 'bg-slate-800 text-slate-100'
+                        : 'text-slate-400 hover:bg-slate-900'
+                    }`}
+                  >
+                    Content
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInspectorTab('media')}
+                    className={`h-8 rounded text-xs ${
+                      inspectorTab === 'media'
+                        ? 'bg-slate-800 text-slate-100'
+                        : 'text-slate-400 hover:bg-slate-900'
+                    }`}
+                  >
+                    Media
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInspectorTab('link')}
+                    className={`h-8 rounded text-xs ${
+                      inspectorTab === 'link'
+                        ? 'bg-slate-800 text-slate-100'
+                        : 'text-slate-400 hover:bg-slate-900'
+                    }`}
+                  >
+                    Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInspectorTab('style')}
+                    className={`h-8 rounded text-xs ${
+                      inspectorTab === 'style'
+                        ? 'bg-slate-800 text-slate-100'
+                        : 'text-slate-400 hover:bg-slate-900'
+                    }`}
+                  >
+                    Style
+                  </button>
+                </div>
+                {inspectorTab === 'content' ? (
+                  <>
+                    <input
+                      value={selectedNote.title}
+                      onChange={(event) => updateNote(selectedNote.id, 'title', event.target.value)}
+                      className="h-10 rounded-lg bg-slate-950 border border-slate-700 px-3 text-sm outline-none focus:border-slate-500"
+                      placeholder="Title"
+                    />
+                    <textarea
+                      value={selectedNote.body}
+                      onChange={(event) => updateNote(selectedNote.id, 'body', event.target.value)}
+                      className="min-h-32 rounded-lg bg-slate-950 border border-slate-700 p-3 text-sm outline-none focus:border-slate-500 resize-y"
+                      placeholder="Write your note..."
+                    />
+                    <input
+                      value={selectedNote.tag}
+                      onChange={(event) => updateNote(selectedNote.id, 'tag', event.target.value)}
+                      className="h-10 rounded-lg bg-slate-950 border border-slate-700 px-3 text-sm outline-none focus:border-slate-500"
+                      placeholder="Tag"
+                    />
+                  </>
+                ) : null}
+                {inspectorTab === 'media' ? (
+                  <>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 cursor-pointer text-slate-200">
+                        Upload image
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/gif,image/png,image/webp"
+                          className="hidden"
+                          onChange={(event) =>
+                            void updateNoteImage(selectedNote.id, event.target.files?.[0] ?? null)
+                          }
+                        />
+                      </label>
+                      {selectedNote.imageDataUrl ? (
+                        <>
+                          <button
+                            type="button"
+                            className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 text-slate-200"
+                            onClick={() =>
+                              updateNote(
+                                selectedNote.id,
+                                'imageFit',
+                                selectedNote.imageFit === 'cover' ? 'contain' : 'cover'
+                              )
+                            }
+                          >
+                            {selectedNote.imageFit === 'cover' ? 'Contain' : 'Cover'}
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 text-slate-200"
+                            onClick={() => fitNoteToImage(selectedNote.id)}
+                          >
+                            Fit note
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 text-slate-200"
+                            onClick={() => removeNoteImage(selectedNote.id)}
+                          >
+                            Remove image
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                    {selectedNote.imageDataUrl ? (
+                      <div className="rounded-lg overflow-hidden border border-slate-700 bg-slate-950">
+                        <img
+                          src={selectedNote.imageDataUrl}
+                          alt="Selected note attachment"
+                          className="w-full h-32 object-cover"
+                          style={{ objectFit: selectedNote.imageFit }}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">No image attached.</p>
+                    )}
+                  </>
+                ) : null}
+                {inspectorTab === 'link' ? (
+                  <>
+                    <input
+                      value={selectedNote.link}
+                      onChange={(event) => updateNote(selectedNote.id, 'link', event.target.value)}
+                      className="h-10 rounded-lg bg-slate-950 border border-slate-700 px-3 text-sm outline-none focus:border-slate-500"
+                      placeholder="https://example.com"
+                    />
+                    {selectedNote.link.trim().length > 0 ? (
+                      <a
+                        href={toSafeLink(selectedNote.link)}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="text-xs text-amber-300 underline"
+                      >
+                        Open link
+                      </a>
+                    ) : (
+                      <p className="text-xs text-slate-500">No link set.</p>
+                    )}
+                  </>
+                ) : null}
+                {inspectorTab === 'style' ? (
+                  <>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {NOTE_COLORS.map((color) => (
+                        <button
+                          key={`${selectedNote.id}-${color}`}
+                          type="button"
+                          onClick={() => updateNote(selectedNote.id, 'color', color)}
+                          className={`h-6 w-6 rounded-full border ${
+                            selectedNote.color === color ? 'border-white' : 'border-slate-700'
+                          }`}
+                          style={{ backgroundColor: color }}
+                          aria-label="Set note color"
+                        />
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {NOTE_REACTIONS.map((emoji) => (
+                        <button
+                          key={`${selectedNote.id}-reaction-${emoji}`}
+                          type="button"
+                          onClick={() =>
+                            updateNote(
+                              selectedNote.id,
+                              'reactionEmoji',
+                              selectedNote.reactionEmoji === emoji ? '' : emoji
+                            )
+                          }
+                          className={`h-8 min-w-8 rounded border px-2 text-sm ${
+                            selectedNote.reactionEmoji === emoji
+                              ? 'border-amber-400 bg-amber-400/10'
+                              : 'border-slate-600 bg-slate-950'
+                          }`}
+                          aria-label={`Set reaction ${emoji}`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => removeNote(selectedNote.id)}
+                  className="mt-2 inline-flex items-center justify-center rounded-lg border border-rose-600/70 px-3 py-2 text-sm text-rose-300 hover:bg-rose-950/40"
+                >
+                  Delete note
+                </button>
+              </>
+            )}
+          </aside>
           <div
             ref={boardRef}
             className="relative min-h-[420px] lg:min-h-0 border border-slate-700 rounded-2xl overflow-hidden"
@@ -452,18 +674,6 @@ export default function BoardCanvas({
                   note
                 </span>
                 <div className="flex items-center gap-1">
-                  {NOTE_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => updateNote(note.id, 'color', color)}
-                      className={`w-3.5 h-3.5 rounded-full border ${
-                        note.color === color ? 'border-slate-900' : 'border-slate-700/40'
-                      }`}
-                      style={{ backgroundColor: color }}
-                      aria-label="Set note color"
-                    />
-                  ))}
                   <button
                     type="button"
                     onClick={() => removeNote(note.id)}
@@ -476,99 +686,70 @@ export default function BoardCanvas({
               </div>
 
               <div className="h-[calc(100%-2.5rem)] px-3 py-2 flex flex-col gap-2">
-                <input
-                  value={note.title}
-                  onChange={(event) => updateNote(note.id, 'title', event.target.value)}
-                  className="bg-transparent border-none p-0 m-0 text-base font-semibold text-slate-900 placeholder:text-slate-700/60 focus:outline-none"
-                  placeholder="Title"
-                />
-                <textarea
-                  value={note.body}
-                  onChange={(event) => updateNote(note.id, 'body', event.target.value)}
-                  className="w-full flex-1 resize-none bg-transparent border-none text-sm leading-relaxed text-slate-900 placeholder:text-slate-700/60 focus:outline-none"
-                  placeholder="Write your note..."
-                />
-                <input
-                  value={note.link}
-                  onChange={(event) => updateNote(note.id, 'link', event.target.value)}
-                  className="w-full bg-black/5 rounded px-2 py-1 text-xs text-slate-900 placeholder:text-slate-700/70 focus:outline-none"
-                  placeholder="https://example.com"
-                />
-                {note.link.trim().length > 0 ? (
-                  <a
-                    href={toSafeLink(note.link)}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-xs text-blue-800 underline truncate"
-                    onPointerDown={(event) => event.stopPropagation()}
-                  >
-                    Open link
-                  </a>
-                ) : null}
+                <h4 className="text-sm font-semibold text-slate-900 truncate">
+                  {note.title.trim() || 'Untitled note'}
+                </h4>
+                <p className="max-h-20 overflow-hidden text-xs leading-relaxed text-slate-900/85">
+                  {note.body.trim() || 'No content yet. Use the inspector to edit this note.'}
+                </p>
                 {note.imageDataUrl ? (
-                  <div className="w-full rounded overflow-hidden border border-black/10 bg-black/5">
+                  <div className="w-full rounded overflow-hidden border border-black/10 bg-black/5 mt-auto">
                     <img
                       src={note.imageDataUrl}
                       alt="Note attachment"
                       className="w-full"
                       style={{
-                        height: Math.max(72, Math.min(168, Math.floor(note.height * 0.38))),
+                        height: Math.max(64, Math.min(132, Math.floor(note.height * 0.28))),
                         objectFit: note.imageFit,
                       }}
                     />
                   </div>
                 ) : null}
-                <div className="flex items-center justify-between gap-2">
-                  <input
-                    value={note.tag}
-                    onChange={(event) => updateNote(note.id, 'tag', event.target.value)}
-                    className="w-24 bg-black/5 rounded px-2 py-1 text-xs text-slate-900 placeholder:text-slate-700/70 focus:outline-none"
-                    placeholder="tag"
-                  />
-                  <label className="text-xs px-2 py-1 bg-black/20 text-slate-900 border border-black/20 rounded cursor-pointer font-medium">
-                    Image
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/gif,image/png,image/webp"
-                      className="hidden"
-                      onChange={(event) =>
-                        void updateNoteImage(note.id, event.target.files?.[0] ?? null)
-                      }
-                    />
-                  </label>
-                  {note.imageDataUrl ? (
-                    <button
-                      type="button"
-                      className="text-xs px-2 py-1 bg-black/20 text-slate-900 border border-black/20 rounded font-medium"
-                      onClick={() => removeNoteImage(note.id)}
-                    >
-                      Remove image
-                    </button>
+                <div className="flex items-center gap-1 flex-wrap mt-auto">
+                  {note.tag.trim() ? (
+                    <span className="rounded bg-black/15 px-1.5 py-0.5 text-[11px] text-slate-900/80">
+                      #{note.tag.trim()}
+                    </span>
                   ) : null}
-                  {note.imageDataUrl ? (
+                  {note.link.trim() ? (
+                    <a
+                      href={toSafeLink(note.link)}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="rounded bg-black/15 px-1.5 py-0.5 text-[11px] text-blue-900 underline"
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      link
+                    </a>
+                  ) : null}
+                  {note.reactionEmoji ? (
+                    <span className="rounded bg-black/15 px-1.5 py-0.5 text-[11px] text-slate-900/90">
+                      {note.reactionEmoji}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-1">
+                  {NOTE_REACTIONS.map((emoji) => (
                     <button
+                      key={`${note.id}-reaction-${emoji}`}
                       type="button"
-                      className="text-xs px-2 py-1 bg-black/20 text-slate-900 border border-black/20 rounded font-medium"
                       onClick={() =>
                         updateNote(
                           note.id,
-                          'imageFit',
-                          note.imageFit === 'cover' ? 'contain' : 'cover'
+                          'reactionEmoji',
+                          note.reactionEmoji === emoji ? '' : emoji
                         )
                       }
+                      className={`rounded border px-1.5 py-0.5 text-xs ${
+                        note.reactionEmoji === emoji
+                          ? 'border-slate-900/70 bg-black/20 text-slate-900'
+                          : 'border-black/20 bg-black/10 text-slate-900/85'
+                      }`}
+                      aria-label={`Set reaction ${emoji}`}
                     >
-                      {note.imageFit === 'cover' ? 'Contain' : 'Cover'}
+                      {emoji}
                     </button>
-                  ) : null}
-                  {note.imageDataUrl ? (
-                    <button
-                      type="button"
-                      className="text-xs px-2 py-1 bg-black/20 text-slate-900 border border-black/20 rounded font-medium"
-                      onClick={() => fitNoteToImage(note.id)}
-                    >
-                      Fit note
-                    </button>
-                  ) : null}
+                  ))}
                 </div>
               </div>
 
@@ -580,133 +761,6 @@ export default function BoardCanvas({
               </div>
             ))}
           </div>
-          <aside className="rounded-2xl border border-slate-700 bg-slate-900/85 p-4 flex flex-col gap-3 overflow-y-auto">
-            <div>
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-                Inspector
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Select a note to edit details in one place.
-              </p>
-            </div>
-            {!selectedNote ? (
-              <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
-                No note selected.
-              </div>
-            ) : (
-              <>
-                <input
-                  value={selectedNote.title}
-                  onChange={(event) => updateNote(selectedNote.id, 'title', event.target.value)}
-                  className="h-10 rounded-lg bg-slate-950 border border-slate-700 px-3 text-sm outline-none focus:border-slate-500"
-                  placeholder="Title"
-                />
-                <textarea
-                  value={selectedNote.body}
-                  onChange={(event) => updateNote(selectedNote.id, 'body', event.target.value)}
-                  className="min-h-32 rounded-lg bg-slate-950 border border-slate-700 p-3 text-sm outline-none focus:border-slate-500 resize-y"
-                  placeholder="Write your note..."
-                />
-                <input
-                  value={selectedNote.tag}
-                  onChange={(event) => updateNote(selectedNote.id, 'tag', event.target.value)}
-                  className="h-10 rounded-lg bg-slate-950 border border-slate-700 px-3 text-sm outline-none focus:border-slate-500"
-                  placeholder="Tag"
-                />
-                <input
-                  value={selectedNote.link}
-                  onChange={(event) => updateNote(selectedNote.id, 'link', event.target.value)}
-                  className="h-10 rounded-lg bg-slate-950 border border-slate-700 px-3 text-sm outline-none focus:border-slate-500"
-                  placeholder="https://example.com"
-                />
-                {selectedNote.link.trim().length > 0 ? (
-                  <a
-                    href={toSafeLink(selectedNote.link)}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-xs text-amber-300 underline"
-                  >
-                    Open link
-                  </a>
-                ) : null}
-                <div className="flex items-center gap-2 flex-wrap">
-                  {NOTE_COLORS.map((color) => (
-                    <button
-                      key={`${selectedNote.id}-${color}`}
-                      type="button"
-                      onClick={() => updateNote(selectedNote.id, 'color', color)}
-                      className={`h-6 w-6 rounded-full border ${
-                        selectedNote.color === color ? 'border-white' : 'border-slate-700'
-                      }`}
-                      style={{ backgroundColor: color }}
-                      aria-label="Set note color"
-                    />
-                  ))}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <label className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 cursor-pointer text-slate-200">
-                    Upload image
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/gif,image/png,image/webp"
-                      className="hidden"
-                      onChange={(event) =>
-                        void updateNoteImage(selectedNote.id, event.target.files?.[0] ?? null)
-                      }
-                    />
-                  </label>
-                  {selectedNote.imageDataUrl ? (
-                    <>
-                      <button
-                        type="button"
-                        className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 text-slate-200"
-                        onClick={() =>
-                          updateNote(
-                            selectedNote.id,
-                            'imageFit',
-                            selectedNote.imageFit === 'cover' ? 'contain' : 'cover'
-                          )
-                        }
-                      >
-                        {selectedNote.imageFit === 'cover' ? 'Contain' : 'Cover'}
-                      </button>
-                      <button
-                        type="button"
-                        className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 text-slate-200"
-                        onClick={() => fitNoteToImage(selectedNote.id)}
-                      >
-                        Fit note
-                      </button>
-                      <button
-                        type="button"
-                        className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-950 text-slate-200"
-                        onClick={() => removeNoteImage(selectedNote.id)}
-                      >
-                        Remove image
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-                {selectedNote.imageDataUrl ? (
-                  <div className="rounded-lg overflow-hidden border border-slate-700 bg-slate-950">
-                    <img
-                      src={selectedNote.imageDataUrl}
-                      alt="Selected note attachment"
-                      className="w-full h-32 object-cover"
-                      style={{ objectFit: selectedNote.imageFit }}
-                    />
-                  </div>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => removeNote(selectedNote.id)}
-                  className="mt-2 inline-flex items-center justify-center rounded-lg border border-rose-600/70 px-3 py-2 text-sm text-rose-300 hover:bg-rose-950/40"
-                >
-                  Delete note
-                </button>
-              </>
-            )}
-          </aside>
         </div>
       </section>
     </main>

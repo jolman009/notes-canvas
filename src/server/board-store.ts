@@ -1,5 +1,6 @@
 import type { Note } from '@/lib/notes'
 import { sanitizeNotes, seedNotes } from '@/lib/notes'
+import { enforceAcceptInviteRateLimit, enforceCreateInviteRateLimit } from './invite-rate-limit'
 
 const SUPABASE_PROJECT_ID = process.env.SUPABASE_PROJECT_ID
 const SUPABASE_URL =
@@ -319,6 +320,7 @@ export async function createInvite(
   createdBy: string,
   isReusable: boolean
 ) {
+  enforceCreateInviteRateLimit(createdBy, boardId)
   const token = crypto.randomUUID()
   const rows = await restFetch<Array<{ token: string }>>('/rest/v1/board_invites?select=token', {
     method: 'POST',
@@ -515,6 +517,7 @@ export async function acceptInvite(
   token: string
 ): Promise<InviteAcceptResult> {
   try {
+    enforceAcceptInviteRateLimit(userId)
     const rows = await restFetch<Array<{ board_id: string; status: string }>>(
       '/rest/v1/rpc/accept_board_invite',
       {
@@ -556,6 +559,9 @@ export async function acceptInvite(
     if (message.includes('INVITE_REVOKED')) {
       console.warn('[board.invite.accept.revoked]', { userId, token })
       throw new Error('INVITE_REVOKED')
+    }
+    if (message.includes('RATE_LIMITED')) {
+      throw new Error('RATE_LIMITED')
     }
     if (message.includes('Could not find the function public.accept_board_invite')) {
       throw new Error(

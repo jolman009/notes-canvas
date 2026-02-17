@@ -63,6 +63,18 @@ const acceptInviteServer = createServerFn({ method: 'POST' })
           message: 'This invite link was revoked by the board owner.',
         }
       }
+      if (message.includes('RATE_LIMITED')) {
+        const waitSeconds = Number(message.split(':')[1] || '60')
+        return {
+          ok: false as const,
+          boardId: '',
+          code: 'error' as const,
+          message: `Too many invite attempts. Try again in ${Math.max(
+            1,
+            Math.floor(waitSeconds)
+          )}s.`,
+        }
+      }
       return {
         ok: false as const,
         boardId: '',

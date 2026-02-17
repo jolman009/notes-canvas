@@ -173,10 +173,19 @@ const createInviteServer = createServerFn({ method: 'POST' })
       )
       return { ok: true as const, inviteToken, message: '' }
     } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : ''
+      if (rawMessage.includes('RATE_LIMITED')) {
+        const waitSeconds = Number(rawMessage.split(':')[1] || '60')
+        return {
+          ok: false as const,
+          inviteToken: '',
+          message: `Invite rate limit reached. Try again in ${Math.max(1, Math.floor(waitSeconds))}s.`,
+        }
+      }
       return {
         ok: false as const,
         inviteToken: '',
-        message: error instanceof Error ? error.message : 'Failed to create invite.',
+        message: rawMessage || 'Failed to create invite.',
       }
     }
   })
