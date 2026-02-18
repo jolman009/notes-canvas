@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+@theme {
+  --animate-note-appear: note-appear 200ms ease-out both;
+  --animate-drawer-in: drawer-in 300ms ease-out both;
+}
+
+@keyframes note-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
 body {
   @apply m-0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
