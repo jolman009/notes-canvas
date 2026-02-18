@@ -4,6 +4,7 @@ import { Settings } from "lucide-react";
 type BoardHeaderActionsProps = {
 	realtimeStatus: "unconfigured" | "connecting" | "connected" | "error";
 	presenceCount: number;
+	activeEditorCount?: number;
 	onSettingsOpen: () => void;
 	onLogout: () => void;
 };
@@ -11,6 +12,7 @@ type BoardHeaderActionsProps = {
 export default function BoardHeaderActions({
 	realtimeStatus,
 	presenceCount,
+	activeEditorCount = 0,
 	onSettingsOpen,
 	onLogout,
 }: BoardHeaderActionsProps) {
@@ -30,6 +32,9 @@ export default function BoardHeaderActions({
 					className={`inline-block w-2 h-2 rounded-full ${statusDotColor}`}
 				/>
 				{presenceCount > 0 ? `${presenceCount} online` : null}
+				{activeEditorCount > 0 ? (
+					<span className="text-amber-300">({activeEditorCount} editing)</span>
+				) : null}
 			</span>
 			<button
 				type="button"

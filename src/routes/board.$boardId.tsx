@@ -13,7 +13,22 @@ import {
 	getStoredSession,
 	isSessionValid,
 } from "@/lib/auth-session";
-import { isSelfUpdate, shouldApplyIncomingState } from "@/lib/collab";
+import {
+	backoffMs,
+	isSelfUpdate,
+	mergeRemoteNotes,
+	reconnectJitterMs,
+	shouldApplyIncomingState,
+} from "@/lib/collab";
+import {
+	logMetricsOnTeardown,
+	recordBroadcastReceive,
+	recordBroadcastSend,
+	recordConflict,
+	recordMergeConflict,
+	recordReconnect,
+	recordSaveLatency,
+} from "@/lib/collab-telemetry";
 import { type Note, sanitizeNotes, seedNotes } from "@/lib/notes";
 
 type BoardAccess = {
@@ -52,6 +67,24 @@ type BoardMemberSummary = {
 
 const PRESENCE_HEARTBEAT_MS = 20_000;
 const PRESENCE_STALE_MS = 60_000;
+const BROADCAST_THROTTLE_MS = 2000;
+const REMOTE_ACTIVITY_EXPIRY_MS = 10_000;
+const SAVE_MAX_RETRIES = 3;
+
+export type PresenceUser = {
+	id: string;
+	label: string;
+	activity: "idle" | "editing" | "dragging" | "viewing";
+	activeNoteId?: string;
+};
+
+export type RemoteActivity = {
+	userId: string;
+	label: string;
+	noteId: string | null;
+	activity: "editing" | "dragging" | "idle";
+	timestamp: number;
+};
 
 const loadBoardNotesServer = createServerFn({ method: "POST" })
 	.inputValidator(
@@ -605,9 +638,10 @@ function BoardRoute() {
 	);
 	const [inviteLink, setInviteLink] = useState("");
 	const [inviteMessage, setInviteMessage] = useState("");
-	const [presenceUsers, setPresenceUsers] = useState<
-		Array<{ id: string; label: string }>
-	>([]);
+	const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
+	const [remoteActivityMap, setRemoteActivityMap] = useState<
+		Map<string, RemoteActivity>
+	>(new Map());
 	const [syncFailureCount, setSyncFailureCount] = useState(0);
 	const [conflictCount, setConflictCount] = useState(0);
 	const [pendingConflictNotes, setPendingConflictNotes] = useState<
@@ -645,6 +679,13 @@ function BoardRoute() {
 	const realtimeSubscriptionVersionRef = useRef(0);
 	const retryKeepMineRef = useRef<() => void>(() => {});
 	const keepLatestBoardRef = useRef<() => void>(() => {});
+	const lastBroadcastRef = useRef(0);
+	const localActivityRef = useRef<{
+		noteId: string | null;
+		activity: "editing" | "dragging" | "idle";
+	}>({ noteId: null, activity: "idle" });
+	const remoteActivityMapRef = useRef<Map<string, RemoteActivity>>(new Map());
+	const saveRetryCountRef = useRef(0);
 
 	const cacheKey = useMemo(
 		() => (session ? `canvas-board:${session.user.id}:${boardId}` : ""),
@@ -663,11 +704,17 @@ function BoardRoute() {
 	}, [navigate]);
 
 	const realtimeConfig = useMemo(() => {
-		const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+		const projectId =
+			import.meta.env.SUPABASE_PROJECT_ID ||
+			import.meta.env.VITE_SUPABASE_PROJECT_ID;
 		const url =
+			import.meta.env.SUPABASE_URL ||
 			import.meta.env.VITE_SUPABASE_URL ||
 			(projectId ? `https://${projectId}.supabase.co` : "");
-		const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+		const anonKey =
+			import.meta.env.SUPABASE_ANON_KEY ||
+			import.meta.env.VITE_SUPABASE_ANON_KEY ||
+			"";
 		return {
 			url,
 			anonKey,
@@ -695,18 +742,36 @@ function BoardRoute() {
 			}
 			revisionRef.current = latest.revision;
 			setBoardRevision(latest.revision);
-			lastSyncedNotesRef.current = latest.notes;
-			if (
+
+			// Three-way merge: preserve local changes for notes the user is actively editing/dragging
+			// We use a ref to capture merge result so we can toast AFTER the state update
+			let mergeConflictCount = 0;
+			setNotes((currentNotes) => {
+				const { merged, conflicts } = mergeRemoteNotes(
+					currentNotes,
+					latest.notes,
+					lastSyncedNotesRef.current,
+				);
+				lastSyncedNotesRef.current = latest.notes;
+				mergeConflictCount = conflicts.length;
+				suppressNextSaveRef.current = true;
+				return merged;
+			});
+
+			// Toast outside of setNotes to avoid updating ToastProvider during render
+			if (mergeConflictCount > 0) {
+				recordMergeConflict();
+				addToast(
+					"warning",
+					`${mergeConflictCount} note${mergeConflictCount > 1 ? "s" : ""} had conflicting edits. Remote versions were applied.`,
+				);
+			} else if (
 				showCollaboratorNotice &&
 				!isSelfUpdate(latest.updatedBy, session.user.id)
 			) {
-				addToast(
-					"info",
-					"Board updated by a collaborator. Latest changes were loaded.",
-				);
+				addToast("info", "Board updated by a collaborator. Changes merged.");
 			}
-			suppressNextSaveRef.current = true;
-			setNotes(latest.notes);
+
 			setSyncState("saved");
 			setLastSyncAt(new Date());
 		},
@@ -793,6 +858,7 @@ function BoardRoute() {
 		queuedSaveNotesRef.current = null;
 		saveInFlightRef.current = true;
 		pendingSaveNotesRef.current = notesToSave;
+		const saveStart = Date.now();
 
 		try {
 			const result = await saveBoardNotesServer({
@@ -806,12 +872,16 @@ function BoardRoute() {
 			});
 
 			if (result.ok) {
+				recordSaveLatency(Date.now() - saveStart);
+				saveRetryCountRef.current = 0;
 				setSyncState("saved");
 				setBoardRevision(result.revision);
 				revisionRef.current = result.revision;
 				lastSyncedNotesRef.current = notesToSave;
 				setLastSyncAt(new Date());
 			} else if (result.code === "conflict") {
+				saveRetryCountRef.current = 0;
+				recordConflict();
 				setConflictCount((count) => count + 1);
 				setPendingConflictNotes(notesToSave);
 				addToast(
@@ -827,9 +897,25 @@ function BoardRoute() {
 				);
 				await reloadLatestSnapshot(false);
 			} else {
+				// Non-conflict failure — retry with exponential backoff
+				const attempt = saveRetryCountRef.current;
+				if (attempt < SAVE_MAX_RETRIES) {
+					saveRetryCountRef.current = attempt + 1;
+					const delay = backoffMs(attempt);
+					saveInFlightRef.current = false;
+					queuedSaveNotesRef.current = notesToSave;
+					setTimeout(() => {
+						setSyncState("saving");
+						void drainSaveQueue();
+					}, delay);
+					return;
+				}
+				// Exhausted retries
+				saveRetryCountRef.current = 0;
 				addToast(
 					"error",
-					result.message || "Save failed. Your local draft was rolled back.",
+					result.message ||
+						"Save failed after multiple retries. Your local draft was rolled back.",
 				);
 				setSyncFailureCount((count) => count + 1);
 				suppressNextSaveRef.current = true;
@@ -893,11 +979,26 @@ function BoardRoute() {
 		if (!session || typeof window === "undefined") {
 			return;
 		}
-		window.localStorage.setItem(cacheKey, JSON.stringify(notes));
+		try {
+			window.localStorage.setItem(cacheKey, JSON.stringify(notes));
+		} catch {
+			// Quota exceeded — clear stale caches and skip
+			try {
+				for (let i = window.localStorage.length - 1; i >= 0; i--) {
+					const key = window.localStorage.key(i);
+					if (key?.startsWith("canvas-board:") && key !== cacheKey) {
+						window.localStorage.removeItem(key);
+					}
+				}
+				window.localStorage.setItem(cacheKey, JSON.stringify(notes));
+			} catch {
+				// Still over quota — skip caching silently
+			}
+		}
 	}, [cacheKey, notes, session]);
 
 	useEffect(() => {
-		if (!session || !hasInitializedRef.current) {
+		if (!session || isBoardBootstrapping) {
 			return;
 		}
 		if (suppressNextSaveRef.current) {
@@ -931,13 +1032,14 @@ function BoardRoute() {
 		boardAccess.canEdit,
 		drainSaveQueue,
 		getSaveDebounceMs,
+		isBoardBootstrapping,
 		notes,
 		session,
 		addToast,
 	]);
 
 	useEffect(() => {
-		if (!session || !hasInitializedRef.current) {
+		if (!session || isBoardBootstrapping) {
 			return;
 		}
 		const timer = setInterval(
@@ -947,7 +1049,7 @@ function BoardRoute() {
 			realtimeStatus === "connected" ? 15000 : 2500,
 		);
 		return () => clearInterval(timer);
-	}, [session, reloadLatestSnapshot, realtimeStatus]);
+	}, [session, isBoardBootstrapping, reloadLatestSnapshot, realtimeStatus]);
 
 	useEffect(() => {
 		if (!session) {
@@ -972,8 +1074,39 @@ function BoardRoute() {
 		};
 	}, [session, reloadLatestSnapshot, addToast]);
 
+	// Broadcast local editing activity (throttled)
+	const broadcastActivity = useCallback(
+		(noteId: string | null, activity: "editing" | "dragging" | "idle") => {
+			const channel = realtimeChannelRef.current;
+			if (!channel || !session) return;
+			const now = Date.now();
+			const prev = localActivityRef.current;
+			if (
+				prev.noteId === noteId &&
+				prev.activity === activity &&
+				now - lastBroadcastRef.current < BROADCAST_THROTTLE_MS
+			) {
+				return;
+			}
+			localActivityRef.current = { noteId, activity };
+			lastBroadcastRef.current = now;
+			recordBroadcastSend();
+			void channel.send({
+				type: "broadcast",
+				event: "editing",
+				payload: {
+					noteId,
+					userId: session.user.id,
+					label: session.user.name || session.user.email,
+					activity,
+				},
+			});
+		},
+		[session],
+	);
+
 	useEffect(() => {
-		if (!session || !hasInitializedRef.current) {
+		if (!session || isBoardBootstrapping) {
 			return;
 		}
 		if (!realtimeConfig.enabled) {
@@ -985,6 +1118,8 @@ function BoardRoute() {
 		const subscriptionVersion = ++realtimeSubscriptionVersionRef.current;
 		let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 		let stalePruneTimer: ReturnType<typeof setInterval> | null = null;
+		let activityExpiryTimer: ReturnType<typeof setInterval> | null = null;
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 		setRealtimeStatus("connecting");
 
 		const teardownRealtime = () => {
@@ -1003,6 +1138,41 @@ function BoardRoute() {
 		teardownRealtime();
 		presenceLastSeenRef.current.clear();
 		setPresenceUsers([]);
+		remoteActivityMapRef.current.clear();
+		setRemoteActivityMap(new Map());
+
+		const buildPresenceList = () => {
+			const now = Date.now();
+			const nextPresence: PresenceUser[] = [];
+			for (const [id, value] of presenceLastSeenRef.current.entries()) {
+				if (
+					now - value.lastSeenAt <= PRESENCE_STALE_MS ||
+					id === session.user.id
+				) {
+					const remoteAct = remoteActivityMapRef.current.get(id);
+					nextPresence.push({
+						id,
+						label: value.label,
+						activity:
+							id === session.user.id
+								? localActivityRef.current.activity === "idle"
+									? "viewing"
+									: localActivityRef.current.activity
+								: remoteAct &&
+										now - remoteAct.timestamp < REMOTE_ACTIVITY_EXPIRY_MS
+									? remoteAct.activity
+									: "viewing",
+						activeNoteId:
+							id === session.user.id
+								? (localActivityRef.current.noteId ?? undefined)
+								: (remoteAct?.noteId ?? undefined),
+					});
+				} else {
+					presenceLastSeenRef.current.delete(id);
+				}
+			}
+			setPresenceUsers(nextPresence);
+		};
 
 		void (async () => {
 			try {
@@ -1037,6 +1207,32 @@ function BoardRoute() {
 							void reloadLatestSnapshot(true);
 						},
 					)
+					.on(
+						"broadcast",
+						{ event: "editing" },
+						(payload: {
+							payload: {
+								noteId: string | null;
+								userId: string;
+								label: string;
+								activity: "editing" | "dragging" | "idle";
+							};
+						}) => {
+							const data = payload.payload;
+							if (!data || data.userId === session.user.id) return;
+							recordBroadcastReceive();
+							const entry: RemoteActivity = {
+								userId: data.userId,
+								label: data.label,
+								noteId: data.noteId,
+								activity: data.activity,
+								timestamp: Date.now(),
+							};
+							remoteActivityMapRef.current.set(data.userId, entry);
+							setRemoteActivityMap(new Map(remoteActivityMapRef.current));
+							buildPresenceList();
+						},
+					)
 					.on("presence", { event: "sync" }, () => {
 						const state = channel.presenceState<{
 							id: string;
@@ -1067,20 +1263,7 @@ function BoardRoute() {
 								});
 							}
 						}
-
-						const now = Date.now();
-						const nextPresence: Array<{ id: string; label: string }> = [];
-						for (const [id, value] of presenceLastSeenRef.current.entries()) {
-							if (
-								now - value.lastSeenAt <= PRESENCE_STALE_MS ||
-								id === session.user.id
-							) {
-								nextPresence.push({ id, label: value.label });
-							} else {
-								presenceLastSeenRef.current.delete(id);
-							}
-						}
-						setPresenceUsers(nextPresence);
+						buildPresenceList();
 					})
 					.subscribe((status) => {
 						if (
@@ -1108,11 +1291,18 @@ function BoardRoute() {
 							status === "TIMED_OUT" ||
 							status === "CLOSED"
 						) {
-							setRealtimeStatus("error");
-							addToast(
-								"info",
-								"Realtime connection interrupted. Retrying automatically...",
-							);
+							recordReconnect();
+							setRealtimeStatus("connecting");
+							// Reconnection jitter to prevent thundering herd
+							const jitter = reconnectJitterMs();
+							reconnectTimer = setTimeout(() => {
+								if (cancelled) return;
+								setRealtimeStatus("error");
+								addToast(
+									"info",
+									"Realtime connection interrupted. Retrying automatically...",
+								);
+							}, jitter);
 						}
 					});
 
@@ -1132,20 +1322,28 @@ function BoardRoute() {
 					if (cancelled) {
 						return;
 					}
+					buildPresenceList();
+				}, 10_000);
+
+				// Expire stale remote activity entries
+				activityExpiryTimer = window.setInterval(() => {
+					if (cancelled) return;
 					const now = Date.now();
-					const nextPresence: Array<{ id: string; label: string }> = [];
-					for (const [id, value] of presenceLastSeenRef.current.entries()) {
-						if (
-							now - value.lastSeenAt <= PRESENCE_STALE_MS ||
-							id === session.user.id
-						) {
-							nextPresence.push({ id, label: value.label });
-						} else {
-							presenceLastSeenRef.current.delete(id);
+					let changed = false;
+					for (const [
+						userId,
+						entry,
+					] of remoteActivityMapRef.current.entries()) {
+						if (now - entry.timestamp > REMOTE_ACTIVITY_EXPIRY_MS) {
+							remoteActivityMapRef.current.delete(userId);
+							changed = true;
 						}
 					}
-					setPresenceUsers(nextPresence);
-				}, 10_000);
+					if (changed) {
+						setRemoteActivityMap(new Map(remoteActivityMapRef.current));
+						buildPresenceList();
+					}
+				}, 5_000);
 
 				realtimeClientRef.current = client;
 				realtimeChannelRef.current = channel;
@@ -1158,19 +1356,35 @@ function BoardRoute() {
 
 		return () => {
 			cancelled = true;
+			logMetricsOnTeardown();
 			if (heartbeatTimer) {
 				clearInterval(heartbeatTimer);
 			}
 			if (stalePruneTimer) {
 				clearInterval(stalePruneTimer);
 			}
+			if (activityExpiryTimer) {
+				clearInterval(activityExpiryTimer);
+			}
+			if (reconnectTimer) {
+				clearTimeout(reconnectTimer);
+			}
 			presenceLastSeenRef.current.clear();
+			remoteActivityMapRef.current.clear();
 			setPresenceUsers([]);
+			setRemoteActivityMap(new Map());
 			if (subscriptionVersion === realtimeSubscriptionVersionRef.current) {
 				teardownRealtime();
 			}
 		};
-	}, [boardId, session, reloadLatestSnapshot, realtimeConfig, addToast]);
+	}, [
+		boardId,
+		session,
+		isBoardBootstrapping,
+		reloadLatestSnapshot,
+		realtimeConfig,
+		addToast,
+	]);
 
 	const refreshMembers = useCallback(async () => {
 		if (!session) {
@@ -1584,10 +1798,17 @@ function BoardRoute() {
 				onNotesChange={setNotes}
 				syncState={syncState}
 				title={boardDetails?.title || `Board ${boardId.slice(0, 8)}`}
+				remoteActivityMap={remoteActivityMap}
+				onBroadcastActivity={broadcastActivity}
 				rightActions={
 					<BoardHeaderActions
 						realtimeStatus={realtimeStatus}
 						presenceCount={presenceUsers.length}
+						activeEditorCount={
+							presenceUsers.filter(
+								(u) => u.activity === "editing" || u.activity === "dragging",
+							).length
+						}
 						onSettingsOpen={() => setSettingsOpen(true)}
 						onLogout={() => {
 							setSession(null);

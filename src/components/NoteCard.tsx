@@ -5,6 +5,7 @@ type NoteCardProps = {
 	note: Note;
 	isActive: boolean;
 	isSelected: boolean;
+	editingBy?: { userId: string; label: string; activity: string };
 	onSelect: (id: string) => void;
 	onStartDrag: (id: string, event: React.PointerEvent<HTMLDivElement>) => void;
 	onStartResize: (
@@ -19,17 +20,22 @@ export default function NoteCard({
 	note,
 	isActive,
 	isSelected,
+	editingBy,
 	onSelect,
 	onStartDrag,
 	onStartResize,
 	onRemove,
 	onReactionToggle,
 }: NoteCardProps) {
+	const ringClass = editingBy
+		? "ring-2 ring-sky-400/60"
+		: isActive || isSelected
+			? "ring-2 ring-amber-200/70"
+			: "";
+
 	return (
 		<div
-			className={`absolute cursor-default rounded-xl border border-slate-800/30 shadow-xl animate-note-appear transition-shadow duration-150 ${
-				isActive || isSelected ? "ring-2 ring-amber-200/70" : ""
-			}`}
+			className={`absolute cursor-default rounded-xl border border-slate-800/30 shadow-xl animate-note-appear transition-shadow duration-150 ${ringClass}`}
 			style={{
 				left: note.x,
 				top: note.y,
@@ -39,6 +45,11 @@ export default function NoteCard({
 			}}
 			onPointerDown={() => onSelect(note.id)}
 		>
+			{editingBy ? (
+				<div className="absolute -top-6 left-1/2 -translate-x-1/2 z-10 rounded-full bg-sky-500/90 px-2 py-0.5 text-[10px] font-medium text-white whitespace-nowrap shadow-sm">
+					{editingBy.label} is {editingBy.activity}
+				</div>
+			) : null}
 			<div
 				onPointerDown={(event) => onStartDrag(note.id, event)}
 				className="h-10 px-3 flex items-center justify-between cursor-grab active:cursor-grabbing bg-black/10 rounded-t-xl select-none touch-none"

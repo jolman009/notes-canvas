@@ -14,12 +14,25 @@ import {
 	type Note,
 } from "@/lib/notes";
 
+type RemoteActivity = {
+	userId: string;
+	label: string;
+	noteId: string | null;
+	activity: "editing" | "dragging" | "idle";
+	timestamp: number;
+};
+
 type BoardCanvasProps = {
 	notes: Note[];
 	onNotesChange: (notes: Note[]) => void;
 	syncState: "idle" | "saving" | "saved" | "error";
 	title?: string;
 	rightActions?: React.ReactNode;
+	remoteActivityMap?: Map<string, RemoteActivity>;
+	onBroadcastActivity?: (
+		noteId: string | null,
+		activity: "editing" | "dragging" | "idle",
+	) => void;
 };
 
 const ZOOM_FACTOR = 1.1;
@@ -31,6 +44,8 @@ export default function BoardCanvas({
 	syncState,
 	title = "Your Canvas Board",
 	rightActions,
+	remoteActivityMap,
+	onBroadcastActivity,
 }: BoardCanvasProps) {
 	const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
 	const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
@@ -99,6 +114,30 @@ export default function BoardCanvas({
 		[notes, selectedNoteId],
 	);
 
+	// Build a map of noteId → editing indicator for remote users
+	const editingByMap = useMemo(() => {
+		const map = new Map<
+			string,
+			{ userId: string; label: string; activity: string }
+		>();
+		if (!remoteActivityMap) return map;
+		const now = Date.now();
+		for (const entry of remoteActivityMap.values()) {
+			if (
+				entry.noteId &&
+				entry.activity !== "idle" &&
+				now - entry.timestamp < 10_000
+			) {
+				map.set(entry.noteId, {
+					userId: entry.userId,
+					label: entry.label,
+					activity: entry.activity,
+				});
+			}
+		}
+		return map;
+	}, [remoteActivityMap]);
+
 	const screenToCanvas = useCallback((screenX: number, screenY: number) => {
 		const board = boardRef.current;
 		if (!board) return { x: 0, y: 0 };
@@ -160,6 +199,8 @@ export default function BoardCanvas({
 		};
 
 		const onPointerUp = () => {
+			const wasDragging = dragStateRef.current !== null;
+			const wasResizing = resizeStateRef.current !== null;
 			dragStateRef.current = null;
 			resizeStateRef.current = null;
 			if (panStateRef.current) {
@@ -167,6 +208,9 @@ export default function BoardCanvas({
 				setIsPanning(false);
 			}
 			setActiveNoteId(null);
+			if (wasDragging || wasResizing) {
+				onBroadcastActivity?.(null, "idle");
+			}
 		};
 
 		window.addEventListener("pointermove", onPointerMove);
@@ -175,7 +219,7 @@ export default function BoardCanvas({
 			window.removeEventListener("pointermove", onPointerMove);
 			window.removeEventListener("pointerup", onPointerUp);
 		};
-	}, [notes, onNotesChange, screenToCanvas]);
+	}, [notes, onNotesChange, screenToCanvas, onBroadcastActivity]);
 
 	useEffect(() => {
 		const board = boardRef.current;
@@ -262,6 +306,7 @@ export default function BoardCanvas({
 		setActiveNoteId(id);
 		setSelectedNoteId(id);
 		bringToFront(id);
+		onBroadcastActivity?.(id, "dragging");
 	};
 
 	const startResize = (
@@ -388,6 +433,7 @@ export default function BoardCanvas({
 	const handleSelectNote = (id: string) => {
 		setSelectedNoteId(id);
 		bringToFront(id);
+		onBroadcastActivity?.(id, "editing");
 	};
 
 	const handleZoomIn = () => {
@@ -473,6 +519,7 @@ export default function BoardCanvas({
 									note={note}
 									isActive={activeNoteId === note.id}
 									isSelected={selectedNoteId === note.id}
+									editingBy={editingByMap.get(note.id)}
 									onSelect={handleSelectNote}
 									onStartDrag={startDrag}
 									onStartResize={startResize}

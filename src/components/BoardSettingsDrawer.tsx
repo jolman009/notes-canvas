@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { getMetricsSummary } from "@/lib/collab-telemetry";
 import { roleBadgeClassName } from "@/lib/notes";
 
 type BoardInviteSummary = {
@@ -62,7 +63,12 @@ type BoardSettingsDrawerProps = {
 	inviteMessage: string;
 	boardMessage: string;
 	// Sync stats
-	presenceUsers: Array<{ id: string; label: string }>;
+	presenceUsers: Array<{
+		id: string;
+		label: string;
+		activity: "idle" | "editing" | "dragging" | "viewing";
+		activeNoteId?: string;
+	}>;
 	boardRevision: number;
 	lastSyncAt: Date | null;
 	conflictCount: number;
@@ -118,6 +124,8 @@ export default function BoardSettingsDrawer({
 		| { type: "leaveBoard" }
 		| { type: "deleteBoard" }
 	>(null);
+
+	const telemetry = useMemo(() => (open ? getMetricsSummary() : null), [open]);
 
 	if (!open) return null;
 
@@ -185,11 +193,66 @@ export default function BoardSettingsDrawer({
 						</span>
 					</div>
 					{presenceUsers.length > 0 ? (
-						<div className="mt-2 text-xs text-slate-400">
-							Active: {presenceUsers.map((u) => u.label).join(", ")}
+						<div className="mt-3 space-y-1">
+							<span className="text-xs text-slate-400">
+								Online ({presenceUsers.length})
+							</span>
+							{presenceUsers.map((u) => (
+								<div key={u.id} className="flex items-center gap-2 text-xs">
+									<span className="text-slate-200 truncate">{u.label}</span>
+									{u.activity !== "viewing" && u.activity !== "idle" ? (
+										<span
+											className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+												u.activity === "editing"
+													? "bg-amber-500/20 text-amber-300"
+													: "bg-sky-500/20 text-sky-300"
+											}`}
+										>
+											{u.activity}
+										</span>
+									) : null}
+								</div>
+							))}
 						</div>
 					) : null}
 				</div>
+
+				{/* Collaboration Health */}
+				{telemetry ? (
+					<div className="p-4 border-b border-slate-700/50">
+						<h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
+							Collaboration Health
+						</h3>
+						<div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
+							<span>Total saves</span>
+							<span className="text-slate-100">{telemetry.totalSaves}</span>
+							<span>Avg save latency</span>
+							<span className="text-slate-100">
+								{telemetry.avgSaveLatencyMs}ms
+							</span>
+							<span>P95 save latency</span>
+							<span className="text-slate-100">
+								{telemetry.p95SaveLatencyMs}ms
+							</span>
+							<span>Reconnects</span>
+							<span className="text-slate-100">{telemetry.reconnectCount}</span>
+							<span>Save conflicts</span>
+							<span className="text-slate-100">{telemetry.conflictCount}</span>
+							<span>Merge conflicts</span>
+							<span className="text-slate-100">
+								{telemetry.mergeConflictCount}
+							</span>
+							<span>Broadcasts sent</span>
+							<span className="text-slate-100">
+								{telemetry.broadcastSendCount}
+							</span>
+							<span>Broadcasts received</span>
+							<span className="text-slate-100">
+								{telemetry.broadcastReceiveCount}
+							</span>
+						</div>
+					</div>
+				) : null}
 
 				{/* Invites section (owner-only) */}
 				{isOwner ? (
