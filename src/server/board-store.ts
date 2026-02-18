@@ -32,6 +32,7 @@ export type BoardMemberSummary = {
 	userId: string;
 	role: "owner" | "editor" | "viewer";
 	createdAt: string;
+	displayName: string | null;
 };
 
 export type BoardOwnershipTransferResult = {
@@ -175,10 +176,28 @@ export async function listBoardMembers(
 			accessToken,
 		},
 	);
+
+	const userIds = rows.map((r) => r.user_id);
+	let profiles: Array<{ user_id: string; display_name: string }> = [];
+	if (userIds.length > 0) {
+		try {
+			profiles = await restFetch<
+				Array<{ user_id: string; display_name: string }>
+			>(
+				`/rest/v1/user_profiles?user_id=in.(${userIds.join(",")})&select=user_id,display_name`,
+				{ method: "GET", accessToken },
+			);
+		} catch {
+			// user_profiles table may not exist yet
+		}
+	}
+	const profileMap = new Map(profiles.map((p) => [p.user_id, p.display_name]));
+
 	return rows.map((row) => ({
 		userId: row.user_id,
 		role: normalizeRole(row.role),
 		createdAt: row.created_at,
+		displayName: profileMap.get(row.user_id) || null,
 	}));
 }
 

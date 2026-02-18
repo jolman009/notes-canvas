@@ -20,6 +20,7 @@ type BoardMemberSummary = {
 	userId: string;
 	role: "owner" | "editor" | "viewer";
 	createdAt: string;
+	displayName: string | null;
 };
 
 type BoardSettingsDrawerProps = {
@@ -344,11 +345,16 @@ export default function BoardSettingsDrawer({
 										className="rounded border border-slate-700 bg-slate-950/50 px-3 py-2"
 									>
 										<div className="flex flex-wrap items-center justify-between gap-2">
-											<div>
-												<p className="text-xs text-slate-200">
-													{member.userId}
+											<div className="min-w-0">
+												<p className="text-xs text-slate-200 truncate">
+													{member.displayName || member.userId}
 													{isCurrentUser ? " (you)" : ""}
 												</p>
+												{member.displayName ? (
+													<p className="text-[11px] text-slate-500 truncate">
+														{member.userId}
+													</p>
+												) : null}
 												<p className="text-[11px] text-slate-500">
 													Added{" "}
 													{new Date(member.createdAt).toLocaleDateString()}

@@ -34,11 +34,19 @@ export const signInWithEmailServer = createServerFn({ method: "POST" })
 		password: String(input.password || ""),
 	}))
 	.handler(async ({ data }) => {
-		return await runSupabaseAuth(
+		const result = await runSupabaseAuth(
 			"/auth/v1/token?grant_type=password",
 			data,
 			true,
 		);
+		if (result.ok && result.session) {
+			await upsertUserProfile(
+				result.session.accessToken,
+				result.session.user.id,
+				result.session.user.name || "",
+			);
+		}
+		return result;
 	});
 
 export const signUpWithEmailServer = createServerFn({ method: "POST" })
@@ -52,7 +60,7 @@ export const signUpWithEmailServer = createServerFn({ method: "POST" })
 		}),
 	)
 	.handler(async ({ data }) => {
-		return await runSupabaseAuth(
+		const result = await runSupabaseAuth(
 			"/auth/v1/signup",
 			{
 				email: data.email,
@@ -61,6 +69,14 @@ export const signUpWithEmailServer = createServerFn({ method: "POST" })
 			},
 			false,
 		);
+		if (result.ok && result.session) {
+			await upsertUserProfile(
+				result.session.accessToken,
+				result.session.user.id,
+				result.session.user.name || "",
+			);
+		}
+		return result;
 	});
 
 async function runSupabaseAuth(
@@ -156,4 +172,29 @@ function extractUserName(metadata?: { full_name?: string; name?: string }) {
 		return undefined;
 	}
 	return metadata.full_name || metadata.name || undefined;
+}
+
+async function upsertUserProfile(
+	accessToken: string,
+	userId: string,
+	displayName: string,
+) {
+	if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+	try {
+		await fetch(`${SUPABASE_URL}/rest/v1/user_profiles`, {
+			method: "POST",
+			headers: {
+				apikey: SUPABASE_ANON_KEY,
+				Authorization: `Bearer ${accessToken}`,
+				"Content-Type": "application/json",
+				Prefer: "resolution=merge-duplicates",
+			},
+			body: JSON.stringify({
+				user_id: userId,
+				display_name: displayName,
+			}),
+		});
+	} catch {
+		// Non-critical: database trigger should handle profile creation
+	}
 }

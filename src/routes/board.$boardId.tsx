@@ -47,6 +47,7 @@ type BoardMemberSummary = {
 	userId: string;
 	role: "owner" | "editor" | "viewer";
 	createdAt: string;
+	displayName: string | null;
 };
 
 const PRESENCE_HEARTBEAT_MS = 20_000;
