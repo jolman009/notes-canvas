@@ -1,6 +1,7 @@
 {
   "short_name": "TanStack App",
   "name": "Create TanStack App Sample",
+  "description": "A TanStack Start application",
   "icons": [
     {
       "src": "favicon.ico",
@@ -20,6 +21,11 @@
   ],
   "start_url": ".",
   "display": "standalone",
+  "display_override": ["standalone"],
+  "orientation": "any",
   "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "background_color": "#ffffff",
+  "screenshots": [],
+  "shortcuts": [],
+  "protocol_handlers": []
 }
