@@ -110,8 +110,8 @@ export function sanitizeNotes(input: unknown): Note[] {
 					NOTE_REACTIONS.includes(note.reactionEmoji as NoteReaction)
 						? (note.reactionEmoji as NoteReaction)
 						: "",
-				x: typeof note.x === "number" ? Math.max(0, note.x) : 0,
-				y: typeof note.y === "number" ? Math.max(0, note.y) : 0,
+				x: typeof note.x === "number" ? note.x : 0,
+				y: typeof note.y === "number" ? note.y : 0,
 				width:
 					typeof note.width === "number"
 						? clamp(note.width, MIN_NOTE_WIDTH, 640)

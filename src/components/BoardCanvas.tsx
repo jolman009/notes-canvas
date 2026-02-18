@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CanvasToolbar from "@/components/CanvasToolbar";
 import Inspector from "@/components/Inspector";
 import NoteCard from "@/components/NoteCard";
+import ZoomControls, { MAX_ZOOM, MIN_ZOOM } from "@/components/ZoomControls";
 import { readImageFile } from "@/lib/canvas-helpers";
 import {
 	clamp,
@@ -21,6 +22,9 @@ type BoardCanvasProps = {
 	rightActions?: React.ReactNode;
 };
 
+const ZOOM_FACTOR = 1.1;
+const GRID_SIZE = 28;
+
 export default function BoardCanvas({
 	notes,
 	onNotesChange,
@@ -33,6 +37,10 @@ export default function BoardCanvas({
 	const [query, setQuery] = useState("");
 	const [colorFilter, setColorFilter] = useState("all");
 	const [tagFilter, setTagFilter] = useState("all");
+	const [zoom, setZoom] = useState(1);
+	const [panX, setPanX] = useState(0);
+	const [panY, setPanY] = useState(0);
+	const [isPanning, setIsPanning] = useState(false);
 	const boardRef = useRef<HTMLDivElement | null>(null);
 	const dragStateRef = useRef<{
 		id: string;
@@ -45,9 +53,20 @@ export default function BoardCanvas({
 		startY: number;
 		startWidth: number;
 		startHeight: number;
-		noteX: number;
-		noteY: number;
 	} | null>(null);
+	const panStateRef = useRef<{
+		startX: number;
+		startY: number;
+		startPanX: number;
+		startPanY: number;
+	} | null>(null);
+
+	const zoomRef = useRef(zoom);
+	const panXRef = useRef(panX);
+	const panYRef = useRef(panY);
+	zoomRef.current = zoom;
+	panXRef.current = panX;
+	panYRef.current = panY;
 
 	const tags = useMemo(
 		() =>
@@ -80,26 +99,35 @@ export default function BoardCanvas({
 		[notes, selectedNoteId],
 	);
 
+	const screenToCanvas = useCallback((screenX: number, screenY: number) => {
+		const board = boardRef.current;
+		if (!board) return { x: 0, y: 0 };
+		const bounds = board.getBoundingClientRect();
+		return {
+			x: (screenX - bounds.left - panXRef.current) / zoomRef.current,
+			y: (screenY - bounds.top - panYRef.current) / zoomRef.current,
+		};
+	}, []);
+
 	useEffect(() => {
 		const onPointerMove = (event: PointerEvent) => {
 			const board = boardRef.current;
 			if (!board) return;
 
+			const panState = panStateRef.current;
+			if (panState) {
+				setPanX(panState.startPanX + (event.clientX - panState.startX));
+				setPanY(panState.startPanY + (event.clientY - panState.startY));
+				return;
+			}
+
 			const dragState = dragStateRef.current;
 			if (dragState) {
 				const note = notes.find((item) => item.id === dragState.id);
 				if (!note) return;
-				const bounds = board.getBoundingClientRect();
-				const nextX = clamp(
-					event.clientX - bounds.left - dragState.offsetX,
-					0,
-					Math.max(0, bounds.width - note.width),
-				);
-				const nextY = clamp(
-					event.clientY - bounds.top - dragState.offsetY,
-					0,
-					Math.max(0, bounds.height - note.height),
-				);
+				const canvas = screenToCanvas(event.clientX, event.clientY);
+				const nextX = canvas.x - dragState.offsetX;
+				const nextY = canvas.y - dragState.offsetY;
 				onNotesChange(
 					notes.map((item) =>
 						item.id === dragState.id ? { ...item, x: nextX, y: nextY } : item,
@@ -110,18 +138,16 @@ export default function BoardCanvas({
 
 			const resizeState = resizeStateRef.current;
 			if (resizeState) {
-				const bounds = board.getBoundingClientRect();
-				const deltaX = event.clientX - resizeState.startX;
-				const deltaY = event.clientY - resizeState.startY;
-				const nextWidth = clamp(
-					resizeState.startWidth + deltaX,
+				const z = zoomRef.current;
+				const deltaX = (event.clientX - resizeState.startX) / z;
+				const deltaY = (event.clientY - resizeState.startY) / z;
+				const nextWidth = Math.max(
 					MIN_NOTE_WIDTH,
-					Math.max(MIN_NOTE_WIDTH, bounds.width - resizeState.noteX),
+					resizeState.startWidth + deltaX,
 				);
-				const nextHeight = clamp(
-					resizeState.startHeight + deltaY,
+				const nextHeight = Math.max(
 					MIN_NOTE_HEIGHT,
-					Math.max(MIN_NOTE_HEIGHT, bounds.height - resizeState.noteY),
+					resizeState.startHeight + deltaY,
 				);
 				onNotesChange(
 					notes.map((item) =>
@@ -136,6 +162,10 @@ export default function BoardCanvas({
 		const onPointerUp = () => {
 			dragStateRef.current = null;
 			resizeStateRef.current = null;
+			if (panStateRef.current) {
+				panStateRef.current = null;
+				setIsPanning(false);
+			}
 			setActiveNoteId(null);
 		};
 
@@ -145,26 +175,46 @@ export default function BoardCanvas({
 			window.removeEventListener("pointermove", onPointerMove);
 			window.removeEventListener("pointerup", onPointerUp);
 		};
-	}, [notes, onNotesChange]);
+	}, [notes, onNotesChange, screenToCanvas]);
+
+	useEffect(() => {
+		const board = boardRef.current;
+		if (!board) return;
+		const onWheel = (event: WheelEvent) => {
+			event.preventDefault();
+			const bounds = board.getBoundingClientRect();
+			const cursorX = event.clientX - bounds.left;
+			const cursorY = event.clientY - bounds.top;
+			const oldZoom = zoomRef.current;
+			const direction = event.deltaY < 0 ? 1 : -1;
+			const newZoom = clamp(
+				oldZoom * ZOOM_FACTOR ** direction,
+				MIN_ZOOM,
+				MAX_ZOOM,
+			);
+			const newPanX =
+				cursorX - (cursorX - panXRef.current) * (newZoom / oldZoom);
+			const newPanY =
+				cursorY - (cursorY - panYRef.current) * (newZoom / oldZoom);
+			setZoom(newZoom);
+			setPanX(newPanX);
+			setPanY(newPanY);
+		};
+		board.addEventListener("wheel", onWheel, { passive: false });
+		return () => board.removeEventListener("wheel", onWheel);
+	}, []);
 
 	const createNote = () => {
 		const board = boardRef.current;
 		const id = `note-${Date.now()}`;
-		const x = board
-			? clamp(
-					board.clientWidth / 2 - DEFAULT_NOTE_WIDTH / 2,
-					0,
-					board.clientWidth - DEFAULT_NOTE_WIDTH,
-				)
-			: 100;
-		const y = board
-			? clamp(
-					board.clientHeight / 2 - DEFAULT_NOTE_HEIGHT / 2,
-					0,
-					board.clientHeight - DEFAULT_NOTE_HEIGHT,
-				)
-			: 100;
-
+		let x = 100;
+		let y = 100;
+		if (board) {
+			const centerX = board.clientWidth / 2;
+			const centerY = board.clientHeight / 2;
+			x = (centerX - panX) / zoom - DEFAULT_NOTE_WIDTH / 2;
+			y = (centerY - panY) / zoom - DEFAULT_NOTE_HEIGHT / 2;
+		}
 		onNotesChange([
 			...notes,
 			{
@@ -195,20 +245,20 @@ export default function BoardCanvas({
 	};
 
 	const startDrag = (id: string, event: React.PointerEvent<HTMLDivElement>) => {
-		const board = boardRef.current;
-		if (!board) return;
+		if (!boardRef.current) return;
 		const source = event.target as HTMLElement;
 		if (["INPUT", "TEXTAREA", "BUTTON", "SELECT"].includes(source.tagName))
 			return;
 		const note = notes.find((item) => item.id === id);
 		if (!note) return;
-		const bounds = board.getBoundingClientRect();
+		const canvas = screenToCanvas(event.clientX, event.clientY);
 		dragStateRef.current = {
 			id,
-			offsetX: event.clientX - bounds.left - note.x,
-			offsetY: event.clientY - bounds.top - note.y,
+			offsetX: canvas.x - note.x,
+			offsetY: canvas.y - note.y,
 		};
 		resizeStateRef.current = null;
+		panStateRef.current = null;
 		setActiveNoteId(id);
 		setSelectedNoteId(id);
 		bringToFront(id);
@@ -223,18 +273,31 @@ export default function BoardCanvas({
 		const note = notes.find((item) => item.id === id);
 		if (!note) return;
 		dragStateRef.current = null;
+		panStateRef.current = null;
 		resizeStateRef.current = {
 			id,
 			startX: event.clientX,
 			startY: event.clientY,
 			startWidth: note.width,
 			startHeight: note.height,
-			noteX: note.x,
-			noteY: note.y,
 		};
 		setActiveNoteId(id);
 		setSelectedNoteId(id);
 		bringToFront(id);
+	};
+
+	const startPan = (event: React.PointerEvent<HTMLDivElement>) => {
+		if (event.target !== boardRef.current) return;
+		panStateRef.current = {
+			startX: event.clientX,
+			startY: event.clientY,
+			startPanX: panX,
+			startPanY: panY,
+		};
+		dragStateRef.current = null;
+		resizeStateRef.current = null;
+		setSelectedNoteId(null);
+		setIsPanning(true);
 	};
 
 	const removeNote = (id: string) => {
@@ -299,11 +362,6 @@ export default function BoardCanvas({
 	};
 
 	const fitNoteToImage = (id: string) => {
-		const board = boardRef.current;
-		if (!board) return;
-		const boardWidth = board.clientWidth;
-		const boardHeight = board.clientHeight;
-
 		onNotesChange(
 			notes.map((note) => {
 				if (
@@ -314,23 +372,9 @@ export default function BoardCanvas({
 				)
 					return note;
 				const ratio = note.imageNaturalWidth / note.imageNaturalHeight;
-				const targetWidth = clamp(
-					note.imageNaturalWidth,
-					MIN_NOTE_WIDTH,
-					Math.min(560, boardWidth),
-				);
-				const targetHeight = clamp(
-					targetWidth / ratio,
-					MIN_NOTE_HEIGHT,
-					Math.min(520, boardHeight),
-				);
-				return {
-					...note,
-					width: targetWidth,
-					height: targetHeight,
-					x: clamp(note.x, 0, Math.max(0, boardWidth - targetWidth)),
-					y: clamp(note.y, 0, Math.max(0, boardHeight - targetHeight)),
-				};
+				const targetWidth = clamp(note.imageNaturalWidth, MIN_NOTE_WIDTH, 560);
+				const targetHeight = clamp(targetWidth / ratio, MIN_NOTE_HEIGHT, 520);
+				return { ...note, width: targetWidth, height: targetHeight };
 			}),
 		);
 	};
@@ -344,6 +388,36 @@ export default function BoardCanvas({
 	const handleSelectNote = (id: string) => {
 		setSelectedNoteId(id);
 		bringToFront(id);
+	};
+
+	const handleZoomIn = () => {
+		const board = boardRef.current;
+		if (!board) return;
+		const oldZoom = zoom;
+		const newZoom = clamp(oldZoom * ZOOM_FACTOR, MIN_ZOOM, MAX_ZOOM);
+		const cx = board.clientWidth / 2;
+		const cy = board.clientHeight / 2;
+		setPanX(cx - (cx - panX) * (newZoom / oldZoom));
+		setPanY(cy - (cy - panY) * (newZoom / oldZoom));
+		setZoom(newZoom);
+	};
+
+	const handleZoomOut = () => {
+		const board = boardRef.current;
+		if (!board) return;
+		const oldZoom = zoom;
+		const newZoom = clamp(oldZoom / ZOOM_FACTOR, MIN_ZOOM, MAX_ZOOM);
+		const cx = board.clientWidth / 2;
+		const cy = board.clientHeight / 2;
+		setPanX(cx - (cx - panX) * (newZoom / oldZoom));
+		setPanY(cy - (cy - panY) * (newZoom / oldZoom));
+		setZoom(newZoom);
+	};
+
+	const handleZoomReset = () => {
+		setZoom(1);
+		setPanX(0);
+		setPanY(0);
 	};
 
 	return (
@@ -376,27 +450,43 @@ export default function BoardCanvas({
 					/>
 					<div
 						ref={boardRef}
-						className="relative min-h-[420px] lg:min-h-0 border border-slate-700 rounded-2xl overflow-hidden"
+						className="relative min-h-[420px] lg:min-h-0 border border-slate-700 rounded-2xl overflow-hidden touch-none"
 						style={{
 							backgroundColor: "#0f172a",
 							backgroundImage:
 								"linear-gradient(rgba(148,163,184,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.12) 1px, transparent 1px)",
-							backgroundSize: "28px 28px",
+							backgroundSize: `${GRID_SIZE * zoom}px ${GRID_SIZE * zoom}px`,
+							backgroundPosition: `${panX}px ${panY}px`,
+							cursor: isPanning ? "grabbing" : "grab",
 						}}
+						onPointerDown={startPan}
 					>
-						{filteredNotes.map((note) => (
-							<NoteCard
-								key={note.id}
-								note={note}
-								isActive={activeNoteId === note.id}
-								isSelected={selectedNoteId === note.id}
-								onSelect={handleSelectNote}
-								onStartDrag={startDrag}
-								onStartResize={startResize}
-								onRemove={removeNote}
-								onReactionToggle={handleReactionToggle}
-							/>
-						))}
+						<div
+							style={{
+								transformOrigin: "0 0",
+								transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
+							}}
+						>
+							{filteredNotes.map((note) => (
+								<NoteCard
+									key={note.id}
+									note={note}
+									isActive={activeNoteId === note.id}
+									isSelected={selectedNoteId === note.id}
+									onSelect={handleSelectNote}
+									onStartDrag={startDrag}
+									onStartResize={startResize}
+									onRemove={removeNote}
+									onReactionToggle={handleReactionToggle}
+								/>
+							))}
+						</div>
+						<ZoomControls
+							zoom={zoom}
+							onZoomIn={handleZoomIn}
+							onZoomOut={handleZoomOut}
+							onReset={handleZoomReset}
+						/>
 					</div>
 				</div>
 			</section>

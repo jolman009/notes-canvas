@@ -27,7 +27,7 @@ export default function NoteCard({
 }: NoteCardProps) {
 	return (
 		<div
-			className={`absolute rounded-xl border border-slate-800/30 shadow-xl animate-note-appear transition-shadow duration-150 ${
+			className={`absolute cursor-default rounded-xl border border-slate-800/30 shadow-xl animate-note-appear transition-shadow duration-150 ${
 				isActive || isSelected ? "ring-2 ring-amber-200/70" : ""
 			}`}
 			style={{
