@@ -1,3 +1,11 @@
+import type * as SentryType from "@sentry/react";
+
+let Sentry: typeof SentryType | null = null;
+
+export function getSentry() {
+	return Sentry;
+}
+
 export function initSentry() {
 	const dsn =
 		typeof import.meta !== "undefined"
@@ -11,16 +19,15 @@ export function initSentry() {
 	}
 
 	import("@sentry/react")
-		.then((Sentry) => {
-			Sentry.init({
+		.then((mod) => {
+			mod.init({
 				dsn,
 				tracesSampleRate: 0.1,
 				environment:
 					(import.meta as unknown as { env?: Record<string, string> }).env
 						?.MODE ?? "production",
 			});
-			// Expose for ErrorBoundary
-			(globalThis as Record<string, unknown>).__SENTRY__ = Sentry;
+			Sentry = mod;
 			console.info("[Sentry] Initialized.");
 		})
 		.catch((err) => {
