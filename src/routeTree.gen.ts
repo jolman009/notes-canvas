@@ -15,6 +15,7 @@ import { Route as BoardsRouteImport } from './routes/boards'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as BoardBoardIdRouteImport } from './routes/board.$boardId'
+import { Route as ApiHealthRouteImport } from './routes/api.health'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -46,12 +47,18 @@ const BoardBoardIdRoute = BoardBoardIdRouteImport.update({
   path: '/board/$boardId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/boards': typeof BoardsRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/api/health': typeof ApiHealthRoute
   '/board/$boardId': typeof BoardBoardIdRoute
   '/invite/$token': typeof InviteTokenRoute
 }
@@ -60,6 +67,7 @@ export interface FileRoutesByTo {
   '/boards': typeof BoardsRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/api/health': typeof ApiHealthRoute
   '/board/$boardId': typeof BoardBoardIdRoute
   '/invite/$token': typeof InviteTokenRoute
 }
@@ -69,6 +77,7 @@ export interface FileRoutesById {
   '/boards': typeof BoardsRoute
   '/login': typeof LoginRoute
   '/signup': typeof SignupRoute
+  '/api/health': typeof ApiHealthRoute
   '/board/$boardId': typeof BoardBoardIdRoute
   '/invite/$token': typeof InviteTokenRoute
 }
@@ -79,6 +88,7 @@ export interface FileRouteTypes {
     | '/boards'
     | '/login'
     | '/signup'
+    | '/api/health'
     | '/board/$boardId'
     | '/invite/$token'
   fileRoutesByTo: FileRoutesByTo
@@ -87,6 +97,7 @@ export interface FileRouteTypes {
     | '/boards'
     | '/login'
     | '/signup'
+    | '/api/health'
     | '/board/$boardId'
     | '/invite/$token'
   id:
@@ -95,6 +106,7 @@ export interface FileRouteTypes {
     | '/boards'
     | '/login'
     | '/signup'
+    | '/api/health'
     | '/board/$boardId'
     | '/invite/$token'
   fileRoutesById: FileRoutesById
@@ -104,6 +116,7 @@ export interface RootRouteChildren {
   BoardsRoute: typeof BoardsRoute
   LoginRoute: typeof LoginRoute
   SignupRoute: typeof SignupRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   BoardBoardIdRoute: typeof BoardBoardIdRoute
   InviteTokenRoute: typeof InviteTokenRoute
 }
@@ -152,6 +165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BoardBoardIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -160,6 +180,7 @@ const rootRouteChildren: RootRouteChildren = {
   BoardsRoute: BoardsRoute,
   LoginRoute: LoginRoute,
   SignupRoute: SignupRoute,
+  ApiHealthRoute: ApiHealthRoute,
   BoardBoardIdRoute: BoardBoardIdRoute,
   InviteTokenRoute: InviteTokenRoute,
 }

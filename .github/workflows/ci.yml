@@ -16,7 +16,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -33,3 +33,31 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Post-deploy smoke test — runs after Vercel deploys from main
+  smoke-test:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Vercel deployment
+        # Give Vercel time to build and deploy after push
+        run: sleep 120
+
+      - name: Smoke test — health endpoint
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          if [ -z "$PRODUCTION_URL" ]; then
+            echo "⚠ PRODUCTION_URL not configured in repo variables — skipping smoke test"
+            exit 0
+          fi
+          echo "Checking health endpoint at $PRODUCTION_URL/api/health ..."
+          STATUS=$(curl -s -o /tmp/health.json -w "%{http_code}" "$PRODUCTION_URL/api/health" --max-time 30)
+          echo "HTTP status: $STATUS"
+          cat /tmp/health.json
+          if [ "$STATUS" -ne 200 ]; then
+            echo "❌ Health check failed with status $STATUS"
+            exit 1
+          fi
+          echo "✅ Health check passed"

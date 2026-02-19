@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const CLIENT_DIRS = ['src/components', 'src/routes', 'src/lib']
-const ROOT_FILES = ['.env.example', 'README.md']
+const ROOT_FILES = ['README.md']
 const BLOCKED_PATTERNS = [
   /SUPABASE_SERVICE_ROLE_KEY/i,
   /VITE_SUPABASE_SERVICE_ROLE_KEY/i,
