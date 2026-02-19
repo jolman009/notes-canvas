@@ -7,7 +7,7 @@ Phase 2 covers:
 - Board selection and invite acceptance UX
 
 ## TODO
-- [ ] Add invite data model and SQL migration:
+- [x] Add invite data model and SQL migration:
   - [x] Create `board_invites` table (`id`, `token`, `board_id`, `role`, `expires_at`, `created_by`, `created_at`)
   - [x] Add unique index on `token`
   - [x] Add index on `board_id`
@@ -33,7 +33,7 @@ Phase 2 covers:
   - [x] Add Invite action in board UI
   - [x] Generate copyable invite link
   - [x] Add `/invite/$token` route for acceptance + redirect to board
-- [ ] Handle invite edge cases:
+- [x] Handle invite edge cases:
   - [x] Expired token UI
   - [x] Already a member UI
   - [x] Invalid token UI
@@ -42,14 +42,14 @@ Phase 2 covers:
   - [x] Create default board for each existing user
   - [x] Move `app_state` user records into `board_state`
   - [x] Insert owner record in `board_members`
-- [ ] Add implementation notes after Phase 2 validation.
+- [x] Add implementation notes after Phase 2 validation.
 
 ## Exit Criteria
-- [ ] Users can create multiple boards and open by `/board/$boardId`.
-- [ ] Owner can generate invite links and invited users can join board.
-- [ ] Only board members can read/write board data.
-- [ ] Board non-members are denied access and redirected safely.
-- [ ] Existing user notes are migrated to default board without data loss.
+- [x] Users can create multiple boards and open by `/board/$boardId`.
+- [x] Owner can generate invite links and invited users can join board.
+- [x] Only board members can read/write board data.
+- [x] Board non-members are denied access and redirected safely.
+- [x] Existing user notes are migrated to default board without data loss.
 
 ## Phase 2 Artifacts Added
 - `src/server/board-store.ts`
