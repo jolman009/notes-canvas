@@ -38,7 +38,7 @@ export default function CanvasToolbar({
 
 	return (
 		<div className="bg-slate-900/80 border border-slate-700 rounded-xl p-4 flex flex-col gap-3">
-			<div className="flex items-center justify-between gap-4">
+			<div className="flex items-center justify-between gap-4 flex-wrap">
 				<div>
 					<h2 className="text-xl font-semibold">{title}</h2>
 					<p className="text-sm text-slate-400">
@@ -66,6 +66,7 @@ export default function CanvasToolbar({
 					<button
 						type="button"
 						onClick={onCreateNote}
+						aria-label="Add new note"
 						className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-400 text-slate-900 font-semibold hover:bg-amber-300 transition-colors"
 					>
 						<Plus className="w-4 h-4" />
@@ -77,11 +78,15 @@ export default function CanvasToolbar({
 
 			<div className="grid grid-cols-1 md:grid-cols-3 gap-3">
 				<label className="relative block">
-					<Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+					<Search
+						className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+						aria-hidden="true"
+					/>
 					<input
 						value={query}
 						onChange={(event) => onQueryChange(event.target.value)}
 						placeholder="Search title, body, or tag..."
+						aria-label="Search notes"
 						className="w-full h-10 pl-9 pr-3 rounded-lg bg-slate-950 border border-slate-700 text-sm outline-none focus:border-slate-500"
 					/>
 				</label>
@@ -90,6 +95,9 @@ export default function CanvasToolbar({
 					<button
 						type="button"
 						onClick={() => setColorDropdownOpen(!colorDropdownOpen)}
+						aria-label="Filter by color"
+						aria-expanded={colorDropdownOpen}
+						aria-haspopup="listbox"
 						className="w-full h-10 rounded-lg bg-slate-950 border border-slate-700 text-sm px-3 outline-none text-left flex items-center gap-2 hover:border-slate-500"
 					>
 						{colorFilter === "all" ? (
@@ -99,6 +107,7 @@ export default function CanvasToolbar({
 								<span
 									className="inline-block w-4 h-4 rounded-full border border-slate-600 shrink-0"
 									style={{ backgroundColor: colorFilter }}
+									aria-hidden="true"
 								/>
 								<span>{NOTE_COLOR_LABELS[colorFilter] || colorFilter}</span>
 							</>
@@ -107,15 +116,22 @@ export default function CanvasToolbar({
 					{colorDropdownOpen ? (
 						<>
 							<div
+								role="presentation"
 								className="fixed inset-0 z-30"
 								onClick={() => setColorDropdownOpen(false)}
 								onKeyDown={(e) => {
 									if (e.key === "Escape") setColorDropdownOpen(false);
 								}}
 							/>
-							<div className="absolute top-full left-0 mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 shadow-xl z-40 py-1">
+							<div
+								role="listbox"
+								aria-label="Color filter options"
+								className="absolute top-full left-0 mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 shadow-xl z-40 py-1"
+							>
 								<button
 									type="button"
+									role="option"
+									aria-selected={colorFilter === "all"}
 									onClick={() => {
 										onColorFilterChange("all");
 										setColorDropdownOpen(false);
@@ -130,6 +146,8 @@ export default function CanvasToolbar({
 									<button
 										key={color}
 										type="button"
+										role="option"
+										aria-selected={colorFilter === color}
 										onClick={() => {
 											onColorFilterChange(color);
 											setColorDropdownOpen(false);
@@ -143,6 +161,7 @@ export default function CanvasToolbar({
 										<span
 											className="inline-block w-4 h-4 rounded-full border border-slate-600 shrink-0"
 											style={{ backgroundColor: color }}
+											aria-hidden="true"
 										/>
 										{NOTE_COLOR_LABELS[color] || color}
 									</button>
@@ -155,6 +174,7 @@ export default function CanvasToolbar({
 				<select
 					value={tagFilter}
 					onChange={(event) => onTagFilterChange(event.target.value)}
+					aria-label="Filter by tag"
 					className="h-10 rounded-lg bg-slate-950 border border-slate-700 text-sm px-3 outline-none focus:border-slate-500"
 				>
 					<option value="all">All tags</option>

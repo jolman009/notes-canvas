@@ -20,13 +20,17 @@ export default function Header() {
 
 	return (
 		<header className="h-16 px-6 flex items-center justify-between bg-slate-900/95 text-slate-100 border-b border-slate-700/80">
-			<Link to="/boards" className="flex items-center gap-2">
-				<StickyNote className="w-5 h-5 text-amber-300" />
+			<Link
+				to="/boards"
+				className="flex items-center gap-2"
+				aria-label="Canvas Notes - Go to boards"
+			>
+				<StickyNote className="w-5 h-5 text-amber-300" aria-hidden="true" />
 				<span className="text-lg font-semibold tracking-tight">
 					Canvas Notes
 				</span>
 			</Link>
-			<span className="text-sm text-slate-400">
+			<span className="text-sm text-slate-400" aria-live="polite">
 				{displayName ? `Signed in as ${displayName}` : "Guest"}
 			</span>
 		</header>

@@ -71,6 +71,7 @@ function SignUpPage() {
 						value={name}
 						onChange={(event) => setName(event.target.value)}
 						placeholder="Name"
+						aria-label="Display name"
 						className="h-11 rounded-lg bg-slate-950 border border-slate-700 px-3 outline-none focus:border-slate-500"
 					/>
 					<input
@@ -79,6 +80,7 @@ function SignUpPage() {
 						value={email}
 						onChange={(event) => setEmail(event.target.value)}
 						placeholder="Email"
+						aria-label="Email address"
 						className="h-11 rounded-lg bg-slate-950 border border-slate-700 px-3 outline-none focus:border-slate-500"
 					/>
 					<input
@@ -87,6 +89,7 @@ function SignUpPage() {
 						value={password}
 						onChange={(event) => setPassword(event.target.value)}
 						placeholder="Password"
+						aria-label="Password"
 						className="h-11 rounded-lg bg-slate-950 border border-slate-700 px-3 outline-none focus:border-slate-500"
 					/>
 					<input
@@ -95,9 +98,14 @@ function SignUpPage() {
 						value={confirmPassword}
 						onChange={(event) => setConfirmPassword(event.target.value)}
 						placeholder="Confirm password"
+						aria-label="Confirm password"
 						className="h-11 rounded-lg bg-slate-950 border border-slate-700 px-3 outline-none focus:border-slate-500"
 					/>
-					{error ? <p className="text-sm text-rose-300">{error}</p> : null}
+					{error ? (
+						<p className="text-sm text-rose-300" role="alert">
+							{error}
+						</p>
+					) : null}
 					{success ? (
 						<p className="text-sm text-emerald-300">{success}</p>
 					) : null}

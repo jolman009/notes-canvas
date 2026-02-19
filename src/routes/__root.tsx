@@ -7,8 +7,11 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
+import ErrorBoundary from "../components/ErrorBoundary";
 import Header from "../components/Header";
 import { ToastProvider } from "../components/Toast";
+import { checkEnv } from "../lib/env-check";
+import { initSentry } from "../lib/sentry";
 
 import appCss from "../styles.css?url";
 
@@ -64,7 +67,15 @@ function NotFoundPage() {
 	);
 }
 
+let initialized = false;
+
 function RootDocument({ children }: { children: React.ReactNode }) {
+	if (typeof window !== "undefined" && !initialized) {
+		initialized = true;
+		initSentry();
+		checkEnv();
+	}
+
 	return (
 		<html lang="en">
 			<head>
@@ -72,7 +83,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			</head>
 			<body>
 				<Header />
-				<ToastProvider>{children}</ToastProvider>
+				<ErrorBoundary>
+					<ToastProvider>{children}</ToastProvider>
+				</ErrorBoundary>
 				<TanStackDevtools
 					config={{
 						position: "bottom-right",

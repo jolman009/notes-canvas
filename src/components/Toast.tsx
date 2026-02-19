@@ -85,10 +85,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 			{children}
 			{typeof document !== "undefined"
 				? createPortal(
-						<div className="fixed right-4 bottom-4 z-50 flex flex-col gap-2 max-w-md">
+						<div
+							className="fixed right-4 bottom-4 z-50 flex flex-col gap-2 max-w-md"
+							aria-live="polite"
+						>
 							{toasts.map((toast) => (
 								<div
 									key={toast.id}
+									role={
+										toast.type === "error" || toast.type === "warning"
+											? "alert"
+											: undefined
+									}
+									aria-live={
+										toast.type === "error" || toast.type === "warning"
+											? "assertive"
+											: undefined
+									}
 									className={`rounded-lg border px-4 py-3 text-sm shadow-2xl flex items-start gap-3 ${TYPE_STYLES[toast.type]}`}
 								>
 									<div className="flex-1">

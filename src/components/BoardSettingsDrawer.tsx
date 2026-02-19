@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { getMetricsSummary } from "@/lib/collab-telemetry";
 import { roleBadgeClassName } from "@/lib/notes";
@@ -117,6 +117,7 @@ export default function BoardSettingsDrawer({
 	syncFailureCount,
 	realtimeStatus,
 }: BoardSettingsDrawerProps) {
+	const drawerId = useId();
 	const [confirmAction, setConfirmAction] = useState<
 		| null
 		| { type: "removeMember"; userId: string }
@@ -132,22 +133,28 @@ export default function BoardSettingsDrawer({
 	return (
 		<>
 			<div
+				role="presentation"
 				className="fixed inset-0 z-40 bg-black/40"
 				onClick={onClose}
 				onKeyDown={(e) => {
 					if (e.key === "Escape") onClose();
 				}}
 			/>
-			<div className="fixed inset-y-0 right-0 z-40 w-full max-w-md bg-slate-900 border-l border-slate-700 shadow-2xl overflow-y-auto animate-drawer-in">
+			<div
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={drawerId}
+				className="fixed inset-y-0 right-0 z-40 w-full max-w-md bg-slate-900 border-l border-slate-700 shadow-2xl overflow-y-auto animate-drawer-in"
+			>
 				<div className="flex items-center justify-between p-4 border-b border-slate-700">
-					<h2 className="text-lg font-semibold text-slate-100">
+					<h2 id={drawerId} className="text-lg font-semibold text-slate-100">
 						Board Settings
 					</h2>
 					<button
 						type="button"
 						onClick={onClose}
 						className="p-1 rounded hover:bg-slate-800 text-slate-400"
-						aria-label="Close"
+						aria-label="Close settings"
 					>
 						<X className="w-5 h-5" />
 					</button>
@@ -268,6 +275,7 @@ export default function BoardSettingsDrawer({
 										e.target.value === "viewer" ? "viewer" : "editor",
 									)
 								}
+								aria-label="Invite role"
 								className="h-9 rounded-lg bg-slate-950 border border-slate-700 text-sm px-2"
 							>
 								<option value="editor">Editor</option>
@@ -280,6 +288,7 @@ export default function BoardSettingsDrawer({
 										e.target.value === "reusable" ? "reusable" : "one_time",
 									)
 								}
+								aria-label="Invite mode"
 								className="h-9 rounded-lg bg-slate-950 border border-slate-700 text-sm px-2"
 							>
 								<option value="one_time">One-time</option>
@@ -353,6 +362,7 @@ export default function BoardSettingsDrawer({
 								<input
 									value={boardTitleDraft}
 									onChange={(e) => onBoardTitleDraftChange(e.target.value)}
+									aria-label="Board title"
 									className="h-9 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-slate-500"
 									placeholder="Board title"
 								/>
@@ -455,6 +465,7 @@ export default function BoardSettingsDrawer({
 															memberActionUserId === member.userId ||
 															isTransferringOwnership
 														}
+														aria-label={`Role for ${member.displayName || member.userId}`}
 														className="h-7 rounded border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200"
 													>
 														<option value="editor">editor</option>

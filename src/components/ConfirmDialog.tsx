@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type ConfirmDialogProps = {
@@ -31,6 +31,8 @@ export default function ConfirmDialog({
 	const [promptValue, setPromptValue] = useState("");
 	const cancelRef = useRef<HTMLButtonElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const titleId = useId();
+	const descId = useId();
 
 	useEffect(() => {
 		if (!open) {
@@ -44,11 +46,34 @@ export default function ConfirmDialog({
 		}
 	}, [open, promptMode]);
 
+	const dialogRef = useRef<HTMLDivElement>(null);
+
 	useEffect(() => {
 		if (!open) return;
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
 				onCancel();
+				return;
+			}
+			// Focus trap
+			if (e.key === "Tab" && dialogRef.current) {
+				const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+					'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+				);
+				if (focusable.length === 0) return;
+				const first = focusable[0];
+				const last = focusable[focusable.length - 1];
+				if (e.shiftKey) {
+					if (document.activeElement === first) {
+						e.preventDefault();
+						last.focus();
+					}
+				} else {
+					if (document.activeElement === last) {
+						e.preventDefault();
+						first.focus();
+					}
+				}
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
@@ -68,16 +93,28 @@ export default function ConfirmDialog({
 	return createPortal(
 		<div className="fixed inset-0 z-50 flex items-center justify-center">
 			<div
+				role="presentation"
 				className="absolute inset-0 bg-black/60"
 				onClick={onCancel}
 				onKeyDown={(e) => {
 					if (e.key === "Enter" || e.key === " ") onCancel();
 				}}
 			/>
-			<div className="relative z-10 w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
-				<h2 className="text-lg font-semibold text-slate-100">{title}</h2>
+			<div
+				ref={dialogRef}
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={titleId}
+				aria-describedby={description ? descId : undefined}
+				className="relative z-10 w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
+			>
+				<h2 id={titleId} className="text-lg font-semibold text-slate-100">
+					{title}
+				</h2>
 				{description ? (
-					<p className="mt-2 text-sm text-slate-400">{description}</p>
+					<p id={descId} className="mt-2 text-sm text-slate-400">
+						{description}
+					</p>
 				) : null}
 				{promptMode ? (
 					<input

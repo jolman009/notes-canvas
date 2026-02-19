@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Settings } from "lucide-react";
+import { LayoutDashboard, LogOut, Settings } from "lucide-react";
 
 type BoardHeaderActionsProps = {
 	realtimeStatus: "unconfigured" | "connecting" | "connected" | "error";
@@ -25,11 +25,24 @@ export default function BoardHeaderActions({
 					? "bg-rose-400"
 					: "bg-slate-500";
 
+	const statusLabel =
+		realtimeStatus === "connected"
+			? "Connected"
+			: realtimeStatus === "connecting"
+				? "Reconnecting"
+				: realtimeStatus === "error"
+					? "Disconnected"
+					: "Offline";
+
 	return (
 		<>
-			<span className="flex items-center gap-1.5 text-xs text-slate-400">
+			<span
+				className="flex items-center gap-1.5 text-xs text-slate-400"
+				title={`Realtime status: ${statusLabel}${presenceCount > 0 ? `, ${presenceCount} online` : ""}`}
+			>
 				<span
 					className={`inline-block w-2 h-2 rounded-full ${statusDotColor}`}
+					aria-hidden="true"
 				/>
 				{presenceCount > 0 ? `${presenceCount} online` : null}
 				{activeEditorCount > 0 ? (
@@ -39,23 +52,28 @@ export default function BoardHeaderActions({
 			<button
 				type="button"
 				onClick={onSettingsOpen}
-				className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
+				aria-label="Board settings"
+				className="inline-flex items-center gap-1.5 min-h-[44px] px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
 			>
 				<Settings className="w-4 h-4" />
-				Settings
+				<span className="hidden sm:inline">Settings</span>
 			</button>
 			<Link
 				to="/boards"
-				className="inline-flex items-center px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
+				aria-label="Go to boards list"
+				className="inline-flex items-center gap-1.5 min-h-[44px] px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
 			>
-				Boards
+				<LayoutDashboard className="w-4 h-4 sm:hidden" />
+				<span className="hidden sm:inline">Boards</span>
 			</Link>
 			<button
 				type="button"
 				onClick={onLogout}
-				className="inline-flex items-center px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
+				aria-label="Log out"
+				className="inline-flex items-center gap-1.5 min-h-[44px] px-3 py-2 rounded-lg border border-slate-600 text-slate-200 text-sm font-medium hover:bg-slate-800 transition-colors"
 			>
-				Log out
+				<LogOut className="w-4 h-4 sm:hidden" />
+				<span className="hidden sm:inline">Log out</span>
 			</button>
 		</>
 	);

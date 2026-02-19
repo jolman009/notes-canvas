@@ -3,6 +3,7 @@
 @theme {
   --animate-note-appear: note-appear 200ms ease-out both;
   --animate-drawer-in: drawer-in 300ms ease-out both;
+  --animate-sheet-up: sheet-up 300ms ease-out both;
 }
 
 @keyframes note-appear {
@@ -22,6 +23,20 @@
   }
   to {
     transform: translateX(0);
+  }
+}
+
+*:focus-visible {
+  outline: 2px solid #f59e0b !important;
+  outline-offset: 2px !important;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
   }
 }
 

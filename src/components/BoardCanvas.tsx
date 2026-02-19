@@ -1,3 +1,4 @@
+import { PanelBottomOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CanvasToolbar from "@/components/CanvasToolbar";
 import Inspector from "@/components/Inspector";
@@ -37,6 +38,7 @@ type BoardCanvasProps = {
 
 const ZOOM_FACTOR = 1.1;
 const GRID_SIZE = 28;
+const NUDGE_PX = 10;
 
 export default function BoardCanvas({
 	notes,
@@ -56,6 +58,7 @@ export default function BoardCanvas({
 	const [panX, setPanX] = useState(0);
 	const [panY, setPanY] = useState(0);
 	const [isPanning, setIsPanning] = useState(false);
+	const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
 	const boardRef = useRef<HTMLDivElement | null>(null);
 	const dragStateRef = useRef<{
 		id: string;
@@ -74,6 +77,12 @@ export default function BoardCanvas({
 		startY: number;
 		startPanX: number;
 		startPanY: number;
+	} | null>(null);
+	const pinchRef = useRef<{
+		initialDistance: number;
+		initialZoom: number;
+		midX: number;
+		midY: number;
 	} | null>(null);
 
 	const zoomRef = useRef(zoom);
@@ -221,6 +230,7 @@ export default function BoardCanvas({
 		};
 	}, [notes, onNotesChange, screenToCanvas, onBroadcastActivity]);
 
+	// Mouse wheel zoom
 	useEffect(() => {
 		const board = boardRef.current;
 		if (!board) return;
@@ -247,6 +257,150 @@ export default function BoardCanvas({
 		board.addEventListener("wheel", onWheel, { passive: false });
 		return () => board.removeEventListener("wheel", onWheel);
 	}, []);
+
+	// Pinch-to-zoom (Step 6.6)
+	useEffect(() => {
+		const board = boardRef.current;
+		if (!board) return;
+
+		const getDistance = (t1: Touch, t2: Touch) =>
+			Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+
+		const onTouchStart = (e: TouchEvent) => {
+			if (e.touches.length === 2) {
+				const d = getDistance(e.touches[0], e.touches[1]);
+				const bounds = board.getBoundingClientRect();
+				pinchRef.current = {
+					initialDistance: d,
+					initialZoom: zoomRef.current,
+					midX: (e.touches[0].clientX + e.touches[1].clientX) / 2 - bounds.left,
+					midY: (e.touches[0].clientY + e.touches[1].clientY) / 2 - bounds.top,
+				};
+			}
+		};
+
+		const onTouchMove = (e: TouchEvent) => {
+			if (e.touches.length === 2 && pinchRef.current) {
+				e.preventDefault();
+				const d = getDistance(e.touches[0], e.touches[1]);
+				const ratio = d / pinchRef.current.initialDistance;
+				const oldZoom = zoomRef.current;
+				const newZoom = clamp(
+					pinchRef.current.initialZoom * ratio,
+					MIN_ZOOM,
+					MAX_ZOOM,
+				);
+				const cx = pinchRef.current.midX;
+				const cy = pinchRef.current.midY;
+				setPanX(cx - (cx - panXRef.current) * (newZoom / oldZoom));
+				setPanY(cy - (cy - panYRef.current) * (newZoom / oldZoom));
+				setZoom(newZoom);
+			}
+		};
+
+		const onTouchEnd = () => {
+			pinchRef.current = null;
+		};
+
+		board.addEventListener("touchstart", onTouchStart, { passive: true });
+		board.addEventListener("touchmove", onTouchMove, { passive: false });
+		board.addEventListener("touchend", onTouchEnd, { passive: true });
+		return () => {
+			board.removeEventListener("touchstart", onTouchStart);
+			board.removeEventListener("touchmove", onTouchMove);
+			board.removeEventListener("touchend", onTouchEnd);
+		};
+	}, []);
+
+	const bringToFront = useCallback(
+		(id: string) => {
+			const target = notes.find((item) => item.id === id);
+			if (!target) return;
+			onNotesChange([...notes.filter((item) => item.id !== id), target]);
+		},
+		[notes, onNotesChange],
+	);
+
+	const removeNote = useCallback(
+		(id: string) => {
+			if (selectedNoteId === id) setSelectedNoteId(null);
+			onNotesChange(notes.filter((note) => note.id !== id));
+		},
+		[selectedNoteId, notes, onNotesChange],
+	);
+
+	// Keyboard navigation for notes (Step 6.7)
+	const handleCanvasKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLDivElement>) => {
+			// Only handle keys when canvas area is focused (not child inputs)
+			const tag = (e.target as HTMLElement).tagName;
+			if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
+
+			if (e.key === "Escape") {
+				setSelectedNoteId(null);
+				return;
+			}
+
+			if ((e.key === "Delete" || e.key === "Backspace") && selectedNoteId) {
+				e.preventDefault();
+				removeNote(selectedNoteId);
+				return;
+			}
+
+			// Arrow keys nudge selected note
+			if (
+				selectedNoteId &&
+				["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)
+			) {
+				e.preventDefault();
+				const dx =
+					e.key === "ArrowLeft"
+						? -NUDGE_PX
+						: e.key === "ArrowRight"
+							? NUDGE_PX
+							: 0;
+				const dy =
+					e.key === "ArrowUp"
+						? -NUDGE_PX
+						: e.key === "ArrowDown"
+							? NUDGE_PX
+							: 0;
+				onNotesChange(
+					notes.map((n) =>
+						n.id === selectedNoteId ? { ...n, x: n.x + dx, y: n.y + dy } : n,
+					),
+				);
+				return;
+			}
+
+			// Tab/Shift+Tab to cycle through notes
+			if (e.key === "Tab" && filteredNotes.length > 0) {
+				e.preventDefault();
+				const currentIdx = filteredNotes.findIndex(
+					(n) => n.id === selectedNoteId,
+				);
+				let nextIdx: number;
+				if (e.shiftKey) {
+					nextIdx = currentIdx <= 0 ? filteredNotes.length - 1 : currentIdx - 1;
+				} else {
+					nextIdx = currentIdx >= filteredNotes.length - 1 ? 0 : currentIdx + 1;
+				}
+				const next = filteredNotes[nextIdx];
+				setSelectedNoteId(next.id);
+				bringToFront(next.id);
+				onBroadcastActivity?.(next.id, "editing");
+			}
+		},
+		[
+			selectedNoteId,
+			filteredNotes,
+			notes,
+			onNotesChange,
+			onBroadcastActivity,
+			removeNote,
+			bringToFront,
+		],
+	);
 
 	const createNote = () => {
 		const board = boardRef.current;
@@ -280,12 +434,6 @@ export default function BoardCanvas({
 			},
 		]);
 		setSelectedNoteId(id);
-	};
-
-	const bringToFront = (id: string) => {
-		const target = notes.find((item) => item.id === id);
-		if (!target) return;
-		onNotesChange([...notes.filter((item) => item.id !== id), target]);
 	};
 
 	const startDrag = (id: string, event: React.PointerEvent<HTMLDivElement>) => {
@@ -343,11 +491,6 @@ export default function BoardCanvas({
 		resizeStateRef.current = null;
 		setSelectedNoteId(null);
 		setIsPanning(true);
-	};
-
-	const removeNote = (id: string) => {
-		if (selectedNoteId === id) setSelectedNoteId(null);
-		onNotesChange(notes.filter((note) => note.id !== id));
 	};
 
 	const removeNoteImage = (id: string) => {
@@ -486,6 +629,7 @@ export default function BoardCanvas({
 				/>
 
 				<div className="grid flex-1 min-h-0 grid-cols-1 gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
+					{/* Desktop inspector */}
 					<Inspector
 						selectedNote={selectedNote}
 						onUpdateNote={updateNote}
@@ -493,9 +637,14 @@ export default function BoardCanvas({
 						onFitNoteToImage={fitNoteToImage}
 						onRemoveNoteImage={removeNoteImage}
 						onRemoveNote={removeNote}
+						className="hidden lg:flex"
 					/>
 					<div
 						ref={boardRef}
+						tabIndex={0}
+						role="toolbar"
+						aria-label="Canvas board - use arrow keys to move notes, Tab to cycle, Delete to remove"
+						onKeyDown={handleCanvasKeyDown}
 						className="relative min-h-[420px] lg:min-h-0 border border-slate-700 rounded-2xl overflow-hidden touch-none"
 						style={{
 							backgroundColor: "#0f172a",
@@ -536,6 +685,64 @@ export default function BoardCanvas({
 						/>
 					</div>
 				</div>
+
+				{/* Mobile inspector toggle button */}
+				<button
+					type="button"
+					onClick={() => setMobileInspectorOpen(true)}
+					aria-label="Open inspector"
+					className="fixed bottom-4 right-4 z-30 lg:hidden inline-flex items-center gap-2 px-4 py-3 rounded-full bg-slate-800 border border-slate-600 text-slate-200 text-sm font-medium shadow-lg hover:bg-slate-700 transition-colors"
+				>
+					<PanelBottomOpen className="w-4 h-4" />
+					Inspector
+				</button>
+
+				{/* Mobile inspector bottom sheet */}
+				{mobileInspectorOpen ? (
+					<>
+						<div
+							role="presentation"
+							className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+							onClick={() => setMobileInspectorOpen(false)}
+							onKeyDown={(e) => {
+								if (e.key === "Escape") setMobileInspectorOpen(false);
+							}}
+						/>
+						<div
+							role="dialog"
+							aria-modal="true"
+							aria-label="Inspector"
+							className="fixed inset-x-0 bottom-0 z-50 lg:hidden max-h-[70vh] overflow-y-auto rounded-t-2xl border-t border-slate-700 bg-slate-900 shadow-2xl animate-sheet-up"
+						>
+							<div className="flex items-center justify-between p-3 border-b border-slate-700/50">
+								<span className="text-sm font-semibold text-slate-300">
+									Inspector
+								</span>
+								<button
+									type="button"
+									onClick={() => setMobileInspectorOpen(false)}
+									className="p-1 rounded hover:bg-slate-800 text-slate-400"
+									aria-label="Close inspector"
+								>
+									&times;
+								</button>
+							</div>
+							<div className="p-4">
+								<Inspector
+									selectedNote={selectedNote}
+									onUpdateNote={updateNote}
+									onUpdateNoteImage={(id, file) =>
+										void updateNoteImage(id, file)
+									}
+									onFitNoteToImage={fitNoteToImage}
+									onRemoveNoteImage={removeNoteImage}
+									onRemoveNote={removeNote}
+									className="border-0 bg-transparent p-0"
+								/>
+							</div>
+						</div>
+					</>
+				) : null}
 			</section>
 		</main>
 	);

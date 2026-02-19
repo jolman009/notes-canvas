@@ -61,7 +61,7 @@ export default function NoteCard({
 					<button
 						type="button"
 						onClick={() => onRemove(note.id)}
-						className="ml-1 p-1 rounded text-slate-800/70 hover:bg-black/10 hover:text-slate-950"
+						className="ml-1 p-2 rounded text-slate-800/70 hover:bg-black/10 hover:text-slate-950"
 						aria-label="Delete note"
 					>
 						<Trash2 className="w-4 h-4" />
@@ -122,7 +122,7 @@ export default function NoteCard({
 							key={`${note.id}-reaction-${emoji}`}
 							type="button"
 							onClick={() => onReactionToggle(note.id, emoji)}
-							className={`rounded border px-1.5 py-0.5 text-xs ${
+							className={`min-h-[36px] min-w-[36px] rounded border px-1.5 py-0.5 text-xs ${
 								note.reactionEmoji === emoji
 									? "border-slate-900/70 bg-black/20 text-slate-900"
 									: "border-black/20 bg-black/10 text-slate-900/85"
@@ -136,11 +136,11 @@ export default function NoteCard({
 			</div>
 
 			<div
-				className="absolute right-0 bottom-0 w-6 h-6 cursor-se-resize bg-black/15 rounded-tl-md flex items-center justify-center"
+				className="absolute right-0 bottom-0 w-8 h-8 cursor-se-resize bg-black/15 rounded-tl-md flex items-center justify-center"
 				onPointerDown={(event) => onStartResize(note.id, event)}
-				aria-label="Resize note"
+				title="Resize note"
 			>
-				<GripHorizontal className="w-3.5 h-3.5 text-slate-800/60" />
+				<GripHorizontal className="w-4 h-4 text-slate-800/60" />
 			</div>
 		</div>
 	);
